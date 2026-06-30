@@ -114,9 +114,9 @@ def build_constraints(pkgs, env_name):
 
 
 def _label(env_name):
-    m = re.fullmatch(r"serverless-v(\d+)", env_name)
+    m = re.fullmatch(r"serverless-v(\d+)(-ml)?", env_name)
     if m:
-        return f"Serverless environment version {m.group(1)}"
+        return f"Serverless environment version {m.group(1)}" + (" (ML)" if m.group(2) else "")
     if re.match(r"\d+\.\d+\.x", env_name):
         return f"Runtime {env_name}"
     return env_name.replace("-", " ")

@@ -17,7 +17,8 @@ python/
     serverless-v4/
       pyproject.toml
       constraints.txt
-    serverless-v5/
+    serverless-v5/                 # standard serverless
+    serverless-v5-ml/              # ML serverless base environment (v5+)
       ...
   dbr/
     17.3.x-scala2.13/             # standard runtime
@@ -57,8 +58,10 @@ is best-effort. Nobody hand-edits the `python/` artifacts.
 
 `.github/scripts/sync.py` does the regeneration + reconciliation:
 
-- **Serverless** — discovers the published environment versions, downloads each
-  `requirements-env-N.txt`, and regenerates both artifacts.
+- **Serverless** — discovers the published environment versions and downloads each
+  `requirements-env-N.txt`. When a version also publishes an ML base environment
+  (`requirements-ml-N.txt`, serverless v5+), a separate `serverless-vN-ml` env is
+  produced alongside the standard one.
 - **DBR** — enumerates the standard runtime versions from the
   [runtime release-notes index](https://docs.databricks.com/aws/en/release-notes/runtime/),
   then for each fetches the page and parses the "Installed Python libraries" HTML
@@ -92,7 +95,7 @@ doc for the full rationale.
 
 ## Status
 
-- [x] Serverless (v1–vN) — auto-discovered + synced (`requirements-env-N.txt`)
+- [x] Serverless (v1–vN) — auto-discovered + synced; ML base environment (`-ml`) when published (v5+)
 - [x] DBR standard runtimes — auto-discovered from the index + HTML-table parsing
 - [x] DBR ML runtimes (CPU + GPU) — downloadable requirements or inline tables
 - [ ] PyTorch index config in ML `pyproject.toml` (so `uv` fetches the matching

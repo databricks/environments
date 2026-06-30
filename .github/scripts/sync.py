@@ -89,45 +89,53 @@ def discover_serverless():
     return found
 
 
-def parse_page(html):
-    """Extract (requirements_url, python_version) from a version page.
-
-    The Python version lives in the "System environment" list as
-    ``Python</strong>: 3.12.3``. We match that precise form rather than the first
-    ``3.x.y`` on the page — the package table is full of ``3.x.y`` versions, and a
-    loose match silently picks a wrong one. If neither precise form is found we
-    return None so the caller skips (never emits a guessed version).
-    """
-    m = re.search(r"(/[\w/-]*assets/files/requirements-env-\d+-[0-9a-f]+\.txt)", html)
-    req_url = DOCS_HOST + m.group(1) if m else None
+def serverless_python_version(html):
+    """The Python version from the "System environment" list (``Python</strong>: 3.12.3``).
+    Matched precisely rather than the first ``3.x.y`` on the page (the package table is
+    full of versions); returns None if not found so the caller skips."""
     pv = (re.search(r"Python</strong>\s*:\s*(\d+\.\d+\.\d+)", html)
           or re.search(r"Python version[^0-9]{0,40}?(\d+\.\d+\.\d+)", html))
-    python_version = pv.group(1) if pv else None
-    return req_url, python_version
+    return pv.group(1) if pv else None
+
+
+def serverless_requirements_url(html, kind, n):
+    """Asset URL for a serverless requirements file, or None.
+
+    ``kind`` is 'env' (standard) or 'ml'. A version page links the standard
+    ``requirements-env-N.txt`` and, once the ML base environment exists for that
+    version (serverless v5+), also ``requirements-ml-N.txt``.
+    """
+    m = re.search(rf"(/[\w/-]*assets/files/requirements-{kind}-{n}-[0-9a-f]+\.txt)", html)
+    return DOCS_HOST + m.group(1) if m else None
 
 
 def sync_serverless():
     written = []
     for n, html in discover_serverless():
-        env_name = f"serverless-v{n}"
-        req_url, python_version = parse_page(html)
-        if not req_url or not python_version:
-            print(f"  ! {env_name}: could not locate requirements URL / python version; skipping")
+        python_version = serverless_python_version(html)
+        if not python_version:
+            print(f"  ! serverless-v{n}: no python version; skipping")
             continue
-        try:
-            pkgs = envgen.parse_requirements(fetch(req_url))
-        except Exception as e:
-            # Don't let one flaky download abort the rest of the sync (DBR runs after).
-            print(f"  ! {env_name}: download failed ({e}); skipping")
-            continue
-        out_dir = os.path.join(REPO, "python", "serverless", env_name)
-        os.makedirs(out_dir, exist_ok=True)
-        with open(os.path.join(out_dir, "pyproject.toml"), "w", encoding="utf-8") as f:
-            f.write(envgen.build_pyproject(pkgs, env_name, python_version))
-        with open(os.path.join(out_dir, "constraints.txt"), "w", encoding="utf-8") as f:
-            f.write(envgen.build_constraints(pkgs, env_name))
-        print(f"  + {env_name} (python {python_version}, {len(pkgs)} packages)")
-        written.append(env_name)
+        # Standard environment, plus the ML base environment when published (v5+).
+        for kind, suffix in (("env", ""), ("ml", "-ml")):
+            url = serverless_requirements_url(html, kind, n)
+            if not url:
+                continue
+            env_name = f"serverless-v{n}{suffix}"
+            try:
+                pkgs = envgen.parse_requirements(fetch(url))
+            except Exception as e:
+                # Don't let one flaky download abort the rest of the sync.
+                print(f"  ! {env_name}: download failed ({e}); skipping")
+                continue
+            out_dir = os.path.join(REPO, "python", "serverless", env_name)
+            os.makedirs(out_dir, exist_ok=True)
+            with open(os.path.join(out_dir, "pyproject.toml"), "w", encoding="utf-8") as f:
+                f.write(envgen.build_pyproject(pkgs, env_name, python_version))
+            with open(os.path.join(out_dir, "constraints.txt"), "w", encoding="utf-8") as f:
+                f.write(envgen.build_constraints(pkgs, env_name))
+            print(f"  + {env_name} (python {python_version}, {len(pkgs)} packages)")
+            written.append(env_name)
     return written
 
 
