@@ -276,12 +276,16 @@ def git(*args):
 
 def reconcile():
     """Print drift (modified) and new (untracked) artifacts under python/."""
-    status = git("status", "--porcelain", "python/").strip()
-    if not status:
+    status = git("status", "--porcelain", "python/")
+    lines = [l for l in status.splitlines() if l]
+    if not lines:
         print("\nReconciliation: no changes — repo is in sync with published docs.")
         return False
     changed, new = [], []
-    for line in status.splitlines():
+    for line in lines:
+        # Fixed-width porcelain: 2-char status code, space, path. Don't strip the
+        # line — a worktree-modified/deleted file has a leading space in the code
+        # (' M'/' D'), and stripping would drop the first path character.
         code, path = line[:2], line[3:]
         (new if "?" in code else changed).append(path)
     print("\nReconciliation: changes detected")
@@ -350,8 +354,11 @@ def main():
 
     if args.check:
         # Safe now: python/ was verified clean above, so this only reverts/removes
-        # what this run generated.
-        git("checkout", "--", "python/")
+        # what this run generated. Restore tracked files (skip if python/ isn't
+        # committed yet — e.g. a fresh bootstrap clone where it's all untracked),
+        # then drop any untracked generation.
+        if git("ls-files", "python/").strip():
+            git("checkout", "--", "python/")
         git("clean", "-fdq", "python/")
         sys.exit(1 if changed else 0)
 
