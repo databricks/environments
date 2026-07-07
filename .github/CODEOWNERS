@@ -1,0 +1,20 @@
+# Code owners for databricks/environments.
+#
+# Security-sensitive paths (CI workflows, the scripts CI executes, and the
+# generated dependency-constraint artifacts) require review from a maintainer.
+# Pair this file with a branch-protection rule on `main` that enables
+# "Require review from Code Owners" and requires >= 1 approving review —
+# CODEOWNERS alone does not block merges without that setting.
+
+# CI workflows and actions.
+/.github/workflows/   @rugpanov @rclarey @anton-107
+/.github/actions/     @rugpanov @rclarey @anton-107
+
+# Scripts executed by CI.
+/.github/scripts/     @rugpanov @rclarey @anton-107
+
+# Ownership of CODEOWNERS itself.
+/.github/CODEOWNERS   @rugpanov @rclarey @anton-107
+
+# Generated dependency-constraint artifacts consumed by downstream tooling.
+/python/              @rugpanov @rclarey @anton-107
