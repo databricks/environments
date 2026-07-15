@@ -15,7 +15,10 @@ permissions:
 
 jobs:
   sync:
-    runs-on: ubuntu-latest
+    # GitHub-hosted ubuntu-latest runners use ephemeral IPs that the databricks org's
+    # IP allow list rejects (checkout fails with a 403). linux-ubuntu-latest is part of
+    # the databricks-protected-runner-group, which is inside the allowed network.
+    runs-on: linux-ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
