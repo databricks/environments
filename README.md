@@ -1,5 +1,11 @@
 # databricks-environments
 
+![Status: Work in Progress](https://img.shields.io/badge/status-work%20in%20progress-orange)
+
+> ⚠️ **Work in progress.** This repo is under active development — its layout,
+> artifact format, and sync mechanism may change dramatically over the coming weeks.
+> Don't depend on anything here being stable yet.
+
 Per-compute **dependency constraint artifacts** for Databricks runtimes. Each
 supported environment (a DBR version or a serverless environment version) gets a
 pinned `pyproject.toml` (for uv / Poetry) and `constraints.txt` (for pip / conda) so
