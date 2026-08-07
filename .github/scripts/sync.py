@@ -250,28 +250,46 @@ def dbr_point_releases(index_slug, ml=False, max_minor=10):
     """
     core = re.sub(r"(lts)?(-?ml)?$", "", index_slug)   # '18ml'->'18' ; '17.3lts-ml'->'17.3'
     suffix = "ml" if ml else ""
+
+    def live_page(slug):
+        """(html, ok): html of the page if live (None when 404 or EoS), and ok=False on a
+        transient fetch error so the caller can distinguish "confirmed absent" from
+        "couldn't tell". Transient errors (timeout, 5xx) are logged and never mistaken for
+        a 404, mirroring discover_serverless — a flaky run must not abort the sync or be
+        read as end-of-list."""
+        try:
+            html = fetch_opt(DBR_PAGE.format(slug=slug))
+        except Exception as e:
+            print(f"  ! dbr [{slug}]: transient fetch error ({e}); skipping (not end-of-list)")
+            return None, False
+        if html is None or is_eos(html):
+            return None, True
+        return html, True
+
     if not re.fullmatch(r"\d+", core):
         # Pre-18 scheme: the index slug is the runtime page. Keep it if it's live.
-        html = fetch_opt(DBR_PAGE.format(slug=index_slug))
-        return [index_slug] if html and not is_eos(html) else []
+        html, _ = live_page(index_slug)
+        return [index_slug] if html else []
 
     live, misses = [], 0
     for minor in range(0, max_minor + 1):
         slug = f"{core}.{minor}{suffix}"
-        html = fetch_opt(DBR_PAGE.format(slug=slug))
+        html, ok = live_page(slug)
+        if not ok:
+            # Transient error: skip this minor without advancing the end-of-list counter.
+            continue
         if html is None:
             misses += 1
             if misses >= 2:
                 break
             continue
         misses = 0
-        if not is_eos(html):
-            live.append(slug)
+        live.append(slug)
     if live:
         return live
     # No point-release pages exist yet (e.g. DBR 19) — fall back to the umbrella page.
-    html = fetch_opt(DBR_PAGE.format(slug=index_slug))
-    return [index_slug] if html and not is_eos(html) else []
+    html, _ = live_page(index_slug)
+    return [index_slug] if html else []
 
 
 def _write_env(key, pkgs, python_version, dbconnect):
