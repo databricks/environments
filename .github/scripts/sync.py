@@ -59,6 +59,17 @@ def fetch(url):
         return r.read().decode("utf-8", "replace")
 
 
+def fetch_opt(url):
+    """fetch(), but return None on a genuine 404 (page doesn't exist). Transient
+    errors (timeout, 5xx) re-raise so the caller doesn't mistake them for a 404."""
+    try:
+        return fetch(url)
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return None
+        raise
+
+
 def discover_serverless():
     """Return [(n, page_html)] for every serverless version page that exists.
 
@@ -165,12 +176,28 @@ def table_pkgs(html, anchor_id):
             for k in range(0, len(cells) - 1, 2) if cells[k]}
 
 
+def dbr_title(html):
+    """The page's own runtime <title>, e.g. 'Databricks Runtime 18.2 (EoS)', or ''.
+    Anchored to <title> rather than the first in-body 'Databricks Runtime N' because
+    sidebar/nav links to other runtimes appear earlier in the source."""
+    m = re.search(r"<title[^>]*>(Databricks Runtime[^<|]*)", html)
+    return m.group(1).strip() if m else ""
+
+
+def is_eos(html):
+    """True if the runtime is end-of-support. Read from the <title> only — an '(EoS)'
+    marker elsewhere on the page (nav, changelog links to retired runtimes) is not this
+    runtime's own status and would give false positives."""
+    return "(EoS)" in dbr_title(html)
+
+
 def dbr_meta(html):
     """Return (version, scala, python_version) from a standard runtime page, e.g.
-    ('17.3', '2.13', '3.12.3'), or None if any piece is missing."""
-    # Anchor the version to the page's own <title> rather than the first generic
-    # "Databricks Runtime N" in the HTML — sidebar/nav links to other runtimes can
-    # appear earlier in the source and would otherwise be mis-selected.
+    ('17.3', '2.13', '3.12.3'), or None if any piece is missing.
+
+    Point-release pages carry the minor in the title ('Databricks Runtime 18.2'); the
+    umbrella LTS page does not ('Databricks Runtime 18 LTS') and falls back to '.0'.
+    Feed point-release pages here (see ``dbr_point_releases``) so the minor is real."""
     ver = re.search(r"<title[^>]*>Databricks Runtime\s+(\d+)(?:\.(\d+))?", html)
     sc = re.search(r"Scala</strong>\s*:\s*(\d+\.\d+)", html)
     pv = re.search(r"Python</strong>\s*:\s*(\d+\.\d+\.\d+)", html)
@@ -206,6 +233,65 @@ def discover_dbr(ml=False):
     return out
 
 
+def dbr_point_releases(index_slug, ml=False, max_minor=10):
+    """Expand an index slug into the concrete page slugs to generate a folder for.
+
+    DBR changed its versioning scheme at 18: the index links a single umbrella slug
+    ('18' / '18ml', titled 'Databricks Runtime 18 LTS ...') whose point releases live at
+    their own pages ('18.0', '18.1', '18.2', and the ML '18.0ml' ...). Pre-18 lines keep
+    the old scheme — the index slug ('17.3lts') is itself the runtime page.
+
+    For a bare-major umbrella slug we probe '<major>.<minor>[ml]' for minor 0..max_minor,
+    stopping after two consecutive 404s (end-of-list), and return the LIVE (non-EoS) ones.
+    If a bare major has no point-release pages yet (e.g. DBR 19 today), we fall back to the
+    umbrella slug itself so its folder is still generated. Non-umbrella slugs are returned
+    as-is when live. Each returned slug is meant to be fed to dbr_meta so the minor is read
+    from that page's own title rather than defaulted.
+    """
+    core = re.sub(r"(lts)?(-?ml)?$", "", index_slug)   # '18ml'->'18' ; '17.3lts-ml'->'17.3'
+    suffix = "ml" if ml else ""
+
+    def live_page(slug):
+        """(html, ok): html of the page if live (None when 404 or EoS), and ok=False on a
+        transient fetch error so the caller can distinguish "confirmed absent" from
+        "couldn't tell". Transient errors (timeout, 5xx) are logged and never mistaken for
+        a 404, mirroring discover_serverless — a flaky run must not abort the sync or be
+        read as end-of-list."""
+        try:
+            html = fetch_opt(DBR_PAGE.format(slug=slug))
+        except Exception as e:
+            print(f"  ! dbr [{slug}]: transient fetch error ({e}); skipping (not end-of-list)")
+            return None, False
+        if html is None or is_eos(html):
+            return None, True
+        return html, True
+
+    if not re.fullmatch(r"\d+", core):
+        # Pre-18 scheme: the index slug is the runtime page. Keep it if it's live.
+        html, _ = live_page(index_slug)
+        return [index_slug] if html else []
+
+    live, misses = [], 0
+    for minor in range(0, max_minor + 1):
+        slug = f"{core}.{minor}{suffix}"
+        html, ok = live_page(slug)
+        if not ok:
+            # Transient error: skip this minor without advancing the end-of-list counter.
+            continue
+        if html is None:
+            misses += 1
+            if misses >= 2:
+                break
+            continue
+        misses = 0
+        live.append(slug)
+    if live:
+        return live
+    # No point-release pages exist yet (e.g. DBR 19) — fall back to the umbrella page.
+    html, _ = live_page(index_slug)
+    return [index_slug] if html else []
+
+
 def _write_env(key, pkgs, python_version, dbconnect):
     out_dir = os.path.join(REPO, "python", "dbr", key)
     os.makedirs(out_dir, exist_ok=True)
@@ -217,19 +303,20 @@ def _write_env(key, pkgs, python_version, dbconnect):
 
 
 def sync_dbr():
-    for slug in discover_dbr():
-        try:
-            html = fetch(DBR_PAGE.format(slug=slug))
-        except Exception as e:
-            print(f"  ! dbr [{slug}]: fetch failed ({e}); skipping")
-            continue
-        meta = dbr_meta(html)
-        pkgs, _ = parse_dbr_page(html)
-        if not meta or not pkgs:
-            print(f"  ! dbr [{slug}]: no meta / Python table; skipping")
-            continue
-        ver, scala, python_version = meta
-        _write_env(f"{ver}.x-scala{scala}", pkgs, python_version, ver)
+    for index_slug in discover_dbr():
+        for slug in dbr_point_releases(index_slug, ml=False):
+            try:
+                html = fetch(DBR_PAGE.format(slug=slug))
+            except Exception as e:
+                print(f"  ! dbr [{slug}]: fetch failed ({e}); skipping")
+                continue
+            meta = dbr_meta(html)
+            pkgs, _ = parse_dbr_page(html)
+            if not meta or not pkgs:
+                print(f"  ! dbr [{slug}]: no meta / Python table; skipping")
+                continue
+            ver, scala, python_version = meta
+            _write_env(f"{ver}.x-scala{scala}", pkgs, python_version, ver)
 
 
 def ml_variant_pkgs(ml_html, variant):
@@ -245,25 +332,30 @@ def ml_variant_pkgs(ml_html, variant):
 
 
 def sync_dbr_ml():
-    for slug in discover_dbr(ml=True):
-        base = re.sub(r"-?ml$", "", slug)        # 17.3lts-ml -> 17.3lts ; 19ml -> 19
-        try:
-            base_html = fetch(DBR_PAGE.format(slug=base))
-            ml_html = fetch(DBR_PAGE.format(slug=slug))
-        except Exception as e:
-            print(f"  ! dbr-ml [{slug}]: fetch failed ({e}); skipping")
+    for index_slug in discover_dbr(ml=True):
+        for slug in dbr_point_releases(index_slug, ml=True):
+            _sync_dbr_ml_page(slug)
+
+
+def _sync_dbr_ml_page(slug):
+    base = re.sub(r"-?ml$", "", slug)        # 18.2ml -> 18.2 ; 17.3lts-ml -> 17.3lts ; 19ml -> 19
+    try:
+        base_html = fetch(DBR_PAGE.format(slug=base))
+        ml_html = fetch(DBR_PAGE.format(slug=slug))
+    except Exception as e:
+        print(f"  ! dbr-ml [{slug}]: fetch failed ({e}); skipping")
+        return
+    meta = dbr_meta(base_html)               # ML pages lack System environment; use base
+    if not meta:
+        print(f"  ! dbr-ml [{slug}]: no base meta from {base}; skipping")
+        return
+    ver, scala, python_version = meta
+    for variant in ("cpu", "gpu"):
+        pkgs = ml_variant_pkgs(ml_html, variant)
+        if not pkgs:
+            print(f"  ! dbr-ml [{slug}] {variant}: no packages found; skipping")
             continue
-        meta = dbr_meta(base_html)               # ML pages lack System environment; use base
-        if not meta:
-            print(f"  ! dbr-ml [{slug}]: no base meta from {base}; skipping")
-            continue
-        ver, scala, python_version = meta
-        for variant in ("cpu", "gpu"):
-            pkgs = ml_variant_pkgs(ml_html, variant)
-            if not pkgs:
-                print(f"  ! dbr-ml [{slug}] {variant}: no packages found; skipping")
-                continue
-            _write_env(f"{ver}.x-{variant}-ml-scala{scala}", pkgs, python_version, ver)
+        _write_env(f"{ver}.x-{variant}-ml-scala{scala}", pkgs, python_version, ver)
 
 
 def git(*args):
