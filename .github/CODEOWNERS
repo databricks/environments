@@ -7,14 +7,14 @@
 # CODEOWNERS alone does not block merges without that setting.
 
 # CI workflows and actions.
-/.github/workflows/   @rugpanov @rclarey @anton-107
-/.github/actions/     @rugpanov @rclarey @anton-107
+/.github/workflows/   @rugpanov @rclarey @anton-107 @misha-db
+/.github/actions/     @rugpanov @rclarey @anton-107 @misha-db
 
 # Scripts executed by CI.
-/.github/scripts/     @rugpanov @rclarey @anton-107
+/.github/scripts/     @rugpanov @rclarey @anton-107 @misha-db
 
 # Ownership of CODEOWNERS itself.
-/.github/CODEOWNERS   @rugpanov @rclarey @anton-107
+/.github/CODEOWNERS   @rugpanov @rclarey @anton-107 @misha-db
 
 # Generated dependency-constraint artifacts consumed by downstream tooling.
-/python/              @rugpanov @rclarey @anton-107
+/python/              @rugpanov @rclarey @anton-107 @misha-db
