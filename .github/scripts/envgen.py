@@ -117,6 +117,8 @@ def _label(env_name):
     m = re.fullmatch(r"serverless-v(\d+)(-ml)?", env_name)
     if m:
         return f"Serverless environment version {m.group(1)}" + (" (ML)" if m.group(2) else "")
-    if re.match(r"\d+\.\d+\.x", env_name):
+    # Point-release folders are '18.2.x-...'; umbrella LTS folders drop the minor
+    # to match a cluster's spark_version ('19.x-...'). Match both.
+    if re.match(r"\d+(\.\d+)?\.x", env_name):
         return f"Runtime {env_name}"
     return env_name.replace("-", " ")
