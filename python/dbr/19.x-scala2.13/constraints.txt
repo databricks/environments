@@ -1,4 +1,4 @@
-# constraints.txt file for Databricks Runtime 19.0.x-scala2.13
+# constraints.txt file for Databricks Runtime 19.x-scala2.13
 
 annotated-doc~=0.0.4
 annotated-types~=0.7.0

@@ -192,18 +192,29 @@ def is_eos(html):
 
 
 def dbr_meta(html):
-    """Return (version, scala, python_version) from a standard runtime page, e.g.
-    ('17.3', '2.13', '3.12.3'), or None if any piece is missing.
+    """Return (key_ver, dbconnect_ver, scala, python_version) from a standard runtime
+    page, or None if any piece is missing.
 
-    Point-release pages carry the minor in the title ('Databricks Runtime 18.2'); the
-    umbrella LTS page does not ('Databricks Runtime 18 LTS') and falls back to '.0'.
-    Feed point-release pages here (see ``dbr_point_releases``) so the minor is real."""
+    A point-release page carries the minor in its title ('Databricks Runtime 18.2'), so
+    both versions are the real minor: ('18.2', '18.2', '2.13', '3.12.3') -> folder
+    '18.2.x-scala2.13', databricks-connect~=18.2.0.
+
+    An umbrella LTS page has no minor in its title ('Databricks Runtime 19 LTS'). Such a
+    line is addressed by its bare major in a cluster's ``spark_version`` ('19.x-scala2.13'),
+    so ``key_ver`` drops the minor to match that naming, while ``dbconnect_ver`` still
+    defaults the minor to '.0' (databricks-connect is published per point release, so the
+    pin needs a concrete minor): ('19', '19.0', '2.13', '3.12.3') -> folder '19.x-scala2.13',
+    databricks-connect~=19.0.0. Feed point-release pages here (see ``dbr_point_releases``)
+    so a real minor is used whenever one is published."""
     ver = re.search(r"<title[^>]*>Databricks Runtime\s+(\d+)(?:\.(\d+))?", html)
     sc = re.search(r"Scala</strong>\s*:\s*(\d+\.\d+)", html)
     pv = re.search(r"Python</strong>\s*:\s*(\d+\.\d+\.\d+)", html)
     if not (ver and sc and pv):
         return None
-    return f"{ver.group(1)}.{ver.group(2) or '0'}", sc.group(1), pv.group(1)
+    major, minor = ver.group(1), ver.group(2)
+    key_ver = f"{major}.{minor}" if minor else major
+    dbconnect_ver = f"{major}.{minor or '0'}"
+    return key_ver, dbconnect_ver, sc.group(1), pv.group(1)
 
 
 def parse_dbr_page(html):
@@ -315,8 +326,8 @@ def sync_dbr():
             if not meta or not pkgs:
                 print(f"  ! dbr [{slug}]: no meta / Python table; skipping")
                 continue
-            ver, scala, python_version = meta
-            _write_env(f"{ver}.x-scala{scala}", pkgs, python_version, ver)
+            key_ver, dbconnect_ver, scala, python_version = meta
+            _write_env(f"{key_ver}.x-scala{scala}", pkgs, python_version, dbconnect_ver)
 
 
 def ml_variant_pkgs(ml_html, variant):
@@ -349,13 +360,13 @@ def _sync_dbr_ml_page(slug):
     if not meta:
         print(f"  ! dbr-ml [{slug}]: no base meta from {base}; skipping")
         return
-    ver, scala, python_version = meta
+    key_ver, dbconnect_ver, scala, python_version = meta
     for variant in ("cpu", "gpu"):
         pkgs = ml_variant_pkgs(ml_html, variant)
         if not pkgs:
             print(f"  ! dbr-ml [{slug}] {variant}: no packages found; skipping")
             continue
-        _write_env(f"{ver}.x-{variant}-ml-scala{scala}", pkgs, python_version, ver)
+        _write_env(f"{key_ver}.x-{variant}-ml-scala{scala}", pkgs, python_version, dbconnect_ver)
 
 
 def git(*args):
