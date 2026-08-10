@@ -66,11 +66,17 @@ def _filtered(pkgs):
 
 
 def dbconnect_pin(pkgs):
-    """Return the dev-group databricks-connect requirement, or None."""
+    """Return the dev-group databricks-connect requirement, or None.
+
+    Serverless lists a concrete databricks-connect (e.g. '17.3.1'), but a serverless
+    environment version tracks a whole major line, not a single point release. So the
+    pin is by bare major — ``~=MAJOR.0`` (e.g. '17.3.1' -> ``databricks-connect~=17.0``,
+    resolving ``>=17.0, <18.0``) — to pick up the latest release within that major.
+    """
     v = pkgs.get("databricks-connect")
     if not v:
         return None
-    return f"databricks-connect~={'.'.join(v.split('.')[:2])}.0"
+    return f"databricks-connect~={v.split('.')[0]}.0"
 
 
 def build_pyproject(pkgs, env_name, python_version, dbconnect=None):
