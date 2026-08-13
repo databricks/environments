@@ -7,6 +7,11 @@ a developer machine:
 
   * Names normalized   - lowercased, ``_``/``.`` -> ``-`` (Cython -> cython).
   * ``==`` -> ``~=``    - allow security/patch bumps within a minor.
+  * databricks-sdk     - widened to ``~=MAJOR.MINOR`` (``>=X.Y, <X+1``) instead of the
+                         default single-patch-line pin, because databricks-connect
+                         (installed from the dev group) declares its own databricks-sdk
+                         floor which can be newer than the release-notes table lists.
+                         See ``req`` for the full rationale.
   * databricks-connect - pinned to ``~=MAJOR.MINOR.0`` and emitted into
                          ``[dependency-groups].dev`` of the pyproject (installed by
                          default under uv); omitted from constraints.txt so the pip
@@ -43,8 +48,23 @@ def req(name, version):
     is invalid with a local version segment (PEP 440), and a local build like
     ``+cpu`` / ``+cu118`` / ``+db1`` is exactly what distinguishes CPU vs GPU ML
     images and Databricks-patched packages — so those are pinned exactly with ``==``.
+
+    ``databricks-sdk`` is a special case. It moves in lockstep with
+    ``databricks-connect``, which is installed from PyPI in the dev group and declares
+    its own ``databricks-sdk`` floor — and that floor can be *newer* than the version
+    the release-notes "Installed Python libraries" table lists (e.g. DBR 18.2 lists
+    ``databricks-sdk 0.67.0``, but ``databricks-connect~=18.2.0`` requires
+    ``databricks-sdk>=0.93,<1``). Pinning it to a single patch line (``~=0.67.0`` →
+    ``>=0.67.0,<0.68``) then makes ``uv sync`` unresolvable. Widening it to its
+    ``MAJOR.MINOR`` (``~=0.67`` → ``>=0.67,<1``) keeps the runtime's version as the
+    floor while letting databricks-connect's own metadata govern the exact version
+    within that window. See issue #16.
     """
-    return f"{name}=={version}" if "+" in version else f"{name}~={version}"
+    if "+" in version:
+        return f"{name}=={version}"
+    if name == "databricks-sdk":
+        version = ".".join(version.split(".")[:2])
+    return f"{name}~={version}"
 
 
 def parse_requirements(text):
