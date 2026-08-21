@@ -51,7 +51,31 @@ serverless), so resolving a target to its artifact is a deterministic lookup.
   so the pip path is constraints-only unless DB Connect is installed explicitly.
 
 Both are a mechanical transform of the official package list published in the
-Databricks release notes — see `.github/scripts/envgen.py` for the rules.
+Databricks release notes — see [What's dropped](#whats-dropped) and
+`.github/scripts/envgen.py` for the rules.
+
+## What's dropped
+
+Not every package in the release-notes list becomes a local constraint. `envgen.py`
+drops the ones that can't — or shouldn't — install on a developer machine, so that
+`uv sync` / `pip install -c` stay resolvable. These are removed from **both**
+`pyproject.toml` and `constraints.txt`:
+
+- **System / OS packages** — `pip`, `pyspark` (DB Connect supplies its own bundled
+  build; `py4j` is kept), `dbus-python`, `pygobject`, `unattended-upgrades`.
+- **setuptools-vendored** — `more-itertools`, `jaraco-*`, `inflect`, `typeguard`, …
+  — shipped inside setuptools, not installed standalone.
+- **Local-version builds** (`+cpu` / `+cuXXX` / `+db1`) — published only on an
+  out-of-band index (`download.pytorch.org`) or rebuilt inside the Databricks image,
+  so they resolve nowhere off the cluster, and `~=` is invalid with a `+local`
+  segment. This drops the ML `torch` / `torchvision` builds, leaving those packages
+  unpinned locally (a plain, non-`+local` pin is kept when the tables list one).
+- **GPU-only distributions** — the `nvidia-*` CUDA runtime components, plus `triton`,
+  `flash-attn`, `deepspeed`: they need an NVIDIA GPU and CUDA toolchain a dev machine
+  lacks, and have no macOS wheel at all.
+
+The exact lists live in `DROP` / `DROP_PREFIX` and `_filtered()` in
+`.github/scripts/envgen.py`.
 
 ## How it stays in sync
 
@@ -77,9 +101,10 @@ is best-effort. Nobody hand-edits the `python/` artifacts.
 - **DBR ML (CPU + GPU)** — for each `*-ml` runtime, a separate environment is produced
   per cluster type: `<ver>.x-cpu-ml-…` and `<ver>.x-gpu-ml-…`. Newer ML pages link
   downloadable `requirements-{cpu,gpu}-*.txt`; older ones render inline tables under
-  `python-libraries-on-{cpu,gpu}-clusters`. The GPU set carries the CUDA builds
-  (e.g. `torch==…+cu118`); the CPU set carries `…+cpu`. Local builds are pinned with
-  `==` (compatible-release `~=` is invalid with a `+local` segment).
+  `python-libraries-on-{cpu,gpu}-clusters`. The GPU set lists the CUDA builds
+  (e.g. `torch …+cu118`) and the CPU set lists `…+cpu`, but these `+local` builds are
+  dropped from the generated artifacts (see [What's dropped](#whats-dropped)) — they
+  resolve nowhere off the cluster image.
 
 The Action runs it; you only need to run it locally to debug:
 

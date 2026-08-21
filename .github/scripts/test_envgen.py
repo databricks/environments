@@ -1,7 +1,7 @@
 """Unit tests for envgen.py (run: python -m unittest test_envgen)."""
 import unittest
 
-from envgen import _filtered, build_constraints, build_pyproject, req
+from envgen import _filtered, build_constraints, build_pyproject, dbconnect_pin, req
 
 
 class FilterNonLocalTest(unittest.TestCase):
@@ -74,6 +74,21 @@ class ReqTest(unittest.TestCase):
 
     def test_databricks_sdk_widened_to_major_minor(self):
         self.assertEqual(req("databricks-sdk", "0.67.0"), "databricks-sdk~=0.67")
+
+
+class DbconnectPinTest(unittest.TestCase):
+    def test_strips_local_version_segment(self):
+        # databricks-connect is installed from the dev group as a plain PyPI release;
+        # the pin is normalized to ~=MAJOR.0, so a local segment in the release-notes
+        # version is discarded and never lands in an artifact. dbconnect_pin reads raw
+        # pkgs (not _filtered), so this guards that the normalization does the stripping.
+        self.assertEqual(
+            dbconnect_pin({"databricks-connect": "17.3.1+db1"}),
+            "databricks-connect~=17.0",
+        )
+
+    def test_none_when_absent(self):
+        self.assertIsNone(dbconnect_pin({"numpy": "2.1.3"}))
 
 
 if __name__ == "__main__":
