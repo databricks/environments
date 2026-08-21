@@ -56,25 +56,29 @@ Databricks release notes — see [what is intentionally not included](#what-is-i
 
 ## What is intentionally not included
 
-Not every package in the release-notes list becomes a local constraint. `envgen.py`
-drops the ones that can't — or shouldn't — install on a developer machine, so that
-`uv sync` / `pip install -c` stay resolvable. These are removed from **both**
-`pyproject.toml` and `constraints.txt`:
+Not every package in the release-notes list is emitted verbatim. `envgen.py` drops
+the ones that can't — or shouldn't — install on a developer machine, and strips
+version markers that would make a pin unresolvable, so `uv sync` / `pip install -c`
+stay resolvable. Applied to **both** `pyproject.toml` and `constraints.txt`:
 
-- **System / OS packages** — `pip`, `pyspark` (DB Connect supplies its own bundled
-  build; `py4j` is kept), `dbus-python`, `pygobject`, `unattended-upgrades`.
-- **setuptools-vendored** — `more-itertools`, `jaraco-*`, `inflect`, `typeguard`, …
-  — shipped inside setuptools, not installed standalone.
-- **Local-version builds** (`+cpu` / `+cuXXX` / `+db1`) — published only on an
-  out-of-band index (`download.pytorch.org`) or rebuilt inside the Databricks image,
-  so they resolve nowhere off the cluster, and `~=` is invalid with a `+local`
-  segment. This drops the ML `torch` / `torchvision` builds, leaving those packages
-  unpinned locally (a plain, non-`+local` pin is kept when the tables list one).
-- **GPU-only distributions** — the `nvidia-*` CUDA runtime components, plus `triton`,
-  `flash-attn`, `deepspeed`: they need an NVIDIA GPU and CUDA toolchain a dev machine
-  lacks, and have no macOS wheel at all.
+- **System / OS packages** (dropped) — `pip`, `pyspark` (DB Connect supplies its own
+  bundled build; `py4j` is kept), `dbus-python`, `pygobject`, `unattended-upgrades`,
+  `python-apt`, `distro-info`.
+- **setuptools-vendored** (dropped) — `more-itertools`, `jaraco-*`, `inflect`,
+  `typeguard`, … — shipped inside setuptools, not installed standalone.
+- **GPU-only distributions** (dropped) — the `nvidia-*` CUDA runtime components, plus
+  `triton`, `flash-attn`, `deepspeed`: they need an NVIDIA GPU (and CUDA toolchain) a
+  dev machine lacks. (`nvidia-ml-py` is pure Python but useless without a driver, and
+  is dropped by the same `nvidia-` prefix.)
+- **Local version segments** (stripped, not dropped) — a `+cpu` / `+cuXXX` / `+db1`
+  segment names a build published only off-index (`download.pytorch.org`) or rebuilt
+  inside the image, and `~=` is invalid with a local segment. The segment is stripped
+  and the base release pinned (`torch 2.9.0+cu129` → `torch~=2.9.0`, `flask 1.1.2+db1`
+  → `flask~=1.1.2`), so `uv` resolves a platform-appropriate wheel. (Ubuntu system
+  builds like `python-apt 2.7.7+ubuntu5.2` are dropped by name above instead, since
+  their base version is not on PyPI.)
 
-The exact lists live in `DROP` / `DROP_PREFIX` and `_filtered()` in
+The exact lists live in `DROP` / `DROP_PREFIX` and `_filtered()` / `req()` in
 `.github/scripts/envgen.py`.
 
 ## How it stays in sync
@@ -102,9 +106,9 @@ is best-effort. Nobody hand-edits the `python/` artifacts.
   per cluster type: `<ver>.x-cpu-ml-…` and `<ver>.x-gpu-ml-…`. Newer ML pages link
   downloadable `requirements-{cpu,gpu}-*.txt`; older ones render inline tables under
   `python-libraries-on-{cpu,gpu}-clusters`. The GPU set lists the CUDA builds
-  (e.g. `torch …+cu118`) and the CPU set lists `…+cpu`, but these `+local` builds are
-  dropped from the generated artifacts (see [what is intentionally not included](#what-is-intentionally-not-included)) — they
-  resolve nowhere off the cluster image.
+  (e.g. `torch …+cu118`) and the CPU set lists `…+cpu`; the generated artifacts strip
+  the `+local` segment and pin the base release (see
+  [what is intentionally not included](#what-is-intentionally-not-included)).
 
 The Action runs it; you only need to run it locally to debug:
 
@@ -130,6 +134,6 @@ doc for the full rationale.
 - [x] DBR standard runtimes — auto-discovered from the index + HTML-table parsing
 - [x] DBR ML runtimes (CPU + GPU) — downloadable requirements or inline tables
 - [ ] PyTorch index config in ML `pyproject.toml`. Today the `+cpu` / `+cuXXX`
-      torch/torchvision builds are dropped (see [what is intentionally not included](#what-is-intentionally-not-included));
-      adding PyTorch's index would let `uv` resolve the matching build, so they could
-      be pinned instead of dropped.
+      torch/torchvision builds are stripped to a base pin (see [what is intentionally not included](#what-is-intentionally-not-included));
+      adding PyTorch's index would let `uv` fetch the exact `+cpu` / `+cuXXX` build the
+      runtime ships, rather than a base-version wheel.

@@ -20,11 +20,13 @@ a developer machine:
     packages dropped     be pip-installed locally or that ship vendored inside
                          setuptools (see DROP / DROP_PREFIX). py4j is kept; pyspark
                          is dropped so DB Connect supplies its own bundled build.
-  * Local-version and  - packages carrying a PEP 440 local version segment
-    GPU builds dropped   (``+cu129`` / ``+cpu`` / ``+db1``) resolve nowhere off the
-                         cluster image, and GPU-only distributions (``nvidia-*`` CUDA
-                         wheels, triton, flash-attn, deepspeed) need a GPU a dev
-                         machine lacks. Both are dropped (see ``_filtered`` / DROP).
+  * Local segments     - a PEP 440 local version segment (``+cu129`` / ``+cpu`` /
+    stripped             ``+db1``) is stripped and the base release pinned
+                         (``torch 2.9.0+cu129`` -> ``torch~=2.9.0``); ``~=`` is
+                         invalid with a local segment and the build exists only
+                         off-index, while its base is an ordinary PyPI release. See ``req``.
+  * GPU-only dropped   - ``nvidia-*`` CUDA wheels, triton, flash-attn and deepspeed
+                         need a GPU a dev machine lacks (see DROP / DROP_PREFIX).
   * requires-python    - taken from the runtime's Python version (major.minor).
 
 This module is imported by ``sync.py`` (the weekly discovery + reconciliation Action).
@@ -35,12 +37,15 @@ import re
 # libs, the spark client, pip itself, and deps vendored inside setuptools.
 DROP = {
     "pyspark", "dbus-python", "pygobject", "pip", "unattended-upgrades",
+    # Ubuntu system packages carried in the image but not pip-installable. Named
+    # explicitly so they stay dropped even though req() now strips local segments
+    # (their +ubuntu / +build local builds would otherwise resurrect as a base pin).
+    "python-apt", "distro-info",
     # setuptools-vendored
     "autocommand", "inflect", "typeguard", "backports-tarfile",
     "importlib-resources", "more-itertools",
-    # GPU-only: need an NVIDIA GPU + CUDA toolchain a dev machine does not have, and
-    # have no wheel at all on macOS (the nvidia-* CUDA runtime libs are dropped by
-    # prefix below). Kept off local constraints — see _filtered.
+    # GPU-only: need an NVIDIA GPU + CUDA toolchain a dev machine does not have.
+    # (The nvidia-* CUDA runtime libs are dropped by prefix below.)
     "triton", "flash-attn", "deepspeed",
 }
 DROP_PREFIX = (
@@ -58,10 +63,13 @@ def norm(name):
 def req(name, version):
     """Render one requirement. Compatible-release ``~=`` allows patch bumps.
 
-    Local version segments (``+cpu`` / ``+cu118`` / ``+db1``) never reach here:
-    ``~=`` is invalid with a local segment (PEP 440), and such builds resolve
-    nowhere off the cluster image, so ``_filtered`` drops them before an artifact is
-    built (see its comment). Every version passed in is therefore a plain release.
+    A PEP 440 local version segment (``+cpu`` / ``+cu118`` / ``+db1``) is stripped:
+    ``~=`` is invalid with a local segment, and the segment names a build published
+    only off-index (``download.pytorch.org``) or rebuilt inside the image, while its
+    base release is an ordinary PyPI version. So the base is pinned instead
+    (``torch 2.9.0+cu129`` -> ``torch~=2.9.0``, ``flask 1.1.2+db1`` -> ``flask~=1.1.2``).
+    Ubuntu system builds like ``python-apt 2.7.7+ubuntu5.2`` would strip to a bogus
+    PyPI pin, so those are dropped by name in ``DROP`` before reaching here.
 
     ``databricks-sdk`` is a special case. It moves in lockstep with
     ``databricks-connect``, which is installed from PyPI in the dev group and declares
@@ -74,6 +82,7 @@ def req(name, version):
     floor while letting databricks-connect's own metadata govern the exact version
     within that window. See issue #16.
     """
+    version = version.split("+", 1)[0]
     if name == "databricks-sdk":
         version = ".".join(version.split(".")[:2])
     return f"{name}~={version}"
@@ -93,13 +102,11 @@ def parse_requirements(text):
 
 
 def _filtered(pkgs):
-    # A PEP 440 local version segment (the part after "+", e.g. "+cu129", "+cpu",
-    # "+db1") marks a build published only on an out-of-band index
-    # (download.pytorch.org) or rebuilt inside the Databricks image. It resolves
-    # nowhere off the cluster and is impossible on macOS/CPU, so it is dropped
-    # alongside the name-based DROP set — never emitted as a local constraint.
+    # Inclusion only: drop the name-based DROP set and DROP_PREFIX. A PEP 440 local
+    # version segment is NOT a reason to drop — its base release is on PyPI — so
+    # those pins are kept here and req() strips the segment when rendering.
     return {n: v for n, v in pkgs.items()
-            if n not in DROP and not n.startswith(DROP_PREFIX) and "+" not in v}
+            if n not in DROP and not n.startswith(DROP_PREFIX)}
 
 
 def dbconnect_pin(pkgs):
