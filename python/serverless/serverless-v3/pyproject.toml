@@ -80,7 +80,6 @@ constraint-dependencies = [
     "opentelemetry-sdk~=1.31.1",
     "opentelemetry-semantic-conventions~=0.52b1",
     "packaging~=24.1",
-    "pandas~=1.5.3",
     "parso~=0.8.3",
     "pathspec~=0.10.3",
     "patsy~=0.5.6",

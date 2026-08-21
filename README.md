@@ -77,9 +77,17 @@ stay resolvable. Applied to **both** `pyproject.toml` and `constraints.txt`:
   → `flask~=1.1.2`), so `uv` resolves a platform-appropriate wheel. (Ubuntu system
   builds like `python-apt 2.7.7+ubuntu5.2` are dropped by name above instead, since
   their base version is not on PyPI.)
+- **Environment-scoped drops** (dropped for named envs only) — a pin whose version
+  has no wheel for that environment's Python, where no in-range version has one
+  either. Today this is **`pandas` on DBR 16.4 and serverless-v3**: they are the only
+  Python-3.12 runtimes still pinned to `pandas 1.5.3`, which has no cp312 wheel (pandas
+  ships 3.12 wheels only from 2.1.1, so `~=1.5` can't reach one). The constraint is
+  dropped for just those envs, letting `pandas` resolve to an installable version
+  locally. Earlier runtimes (13.3/14.3/15.4) predate 3.12, and 17.3+ / serverless-v4+
+  already ship pandas 2.x.
 
-The exact lists live in `DROP` / `DROP_PREFIX` and `_filtered()` / `req()` in
-`.github/scripts/envgen.py`.
+The exact lists live in `DROP` / `DROP_PREFIX` / `DROP_BY_ENV` and `_filtered()` /
+`req()` in `.github/scripts/envgen.py`.
 
 ## How it stays in sync
 

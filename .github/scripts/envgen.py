@@ -27,6 +27,10 @@ a developer machine:
                          off-index, while its base is an ordinary PyPI release. See ``req``.
   * GPU-only dropped   - ``nvidia-*`` CUDA wheels, triton, flash-attn and deepspeed
                          need a GPU a dev machine lacks (see DROP / DROP_PREFIX).
+  * Env-scoped drops   - a pin dropped for specific environments only (DROP_BY_ENV)
+                         when its version has no wheel for that env's Python and no
+                         in-range version does either — e.g. pandas 1.5.3 on the
+                         Python 3.12 runtimes DBR 16.4 / serverless-v3 (issue #18).
   * requires-python    - taken from the runtime's Python version (major.minor).
 
 This module is imported by ``sync.py`` (the weekly discovery + reconciliation Action).
@@ -53,6 +57,21 @@ DROP_PREFIX = (
     "jaraco-",        # jaraco.collections / jaraco.context / ... (setuptools-vendored)
     "nvidia-",        # nvidia-* CUDA wheels (and nvidia-ml-py): GPU tooling, no local use
 )
+
+# Environment-scoped drops: removed for the named environments only (DROP is global).
+# pandas 1.5.3 has no cp312 wheel — pandas ships CPython 3.12 wheels only from 2.1.1 —
+# so `uv sync` on a Python 3.12 runtime can't install it and falls back to a failing
+# source build. DBR 16.4 and serverless-v3 are the only 3.12 runtimes still pinned to
+# pandas 1.5.x: 13.3/14.3/15.4 predate 3.12, and 17.3+ / serverless-v4+ already ship
+# pandas 2.x (which has cp312 wheels). No in-range (~=1.5) version has a cp312 wheel,
+# so the pin can't be salvaged by widening — it is dropped for just these envs, and
+# pandas resolves to an installable version locally. See issue #18.
+DROP_BY_ENV = {
+    "16.4.x-scala2.12": {"pandas"},
+    "16.4.x-cpu-ml-scala2.12": {"pandas"},
+    "16.4.x-gpu-ml-scala2.12": {"pandas"},
+    "serverless-v3": {"pandas"},
+}
 
 
 def norm(name):
@@ -102,12 +121,14 @@ def parse_requirements(text):
     return pkgs
 
 
-def _filtered(pkgs):
-    # Inclusion only: drop the name-based DROP set and DROP_PREFIX. A PEP 440 local
-    # version segment is NOT a reason to drop — its base release is on PyPI — so
-    # those pins are kept here and req() strips the segment when rendering.
+def _filtered(pkgs, env_name=None):
+    # Inclusion only: drop the global name-based DROP set and DROP_PREFIX, plus any
+    # environment-scoped drops (DROP_BY_ENV) for env_name. A PEP 440 local version
+    # segment is NOT a reason to drop — its base release is on PyPI — so those pins
+    # are kept here and req() strips the segment when rendering.
+    env_drop = DROP_BY_ENV.get(env_name, frozenset())
     return {n: v for n, v in pkgs.items()
-            if n not in DROP and not n.startswith(DROP_PREFIX)}
+            if n not in DROP and n not in env_drop and not n.startswith(DROP_PREFIX)}
 
 
 def dbconnect_pin(pkgs):
@@ -133,7 +154,7 @@ def build_pyproject(pkgs, env_name, python_version, dbconnect=None):
     not list it — the matching version is the runtime version, passed in explicitly.
     """
     mm = ".".join(python_version.split(".")[:2])     # 3.12.3 -> 3.12
-    body = {n: v for n, v in _filtered(pkgs).items() if n != "databricks-connect"}
+    body = {n: v for n, v in _filtered(pkgs, env_name).items() if n != "databricks-connect"}
     dev = f"databricks-connect~={dbconnect}.0" if dbconnect else dbconnect_pin(pkgs)
     project = "constraint-env-" + re.sub(r"[^a-z0-9]+", "-", env_name.lower()).strip("-")
     out = [
@@ -158,7 +179,7 @@ def build_pyproject(pkgs, env_name, python_version, dbconnect=None):
 
 
 def build_constraints(pkgs, env_name):
-    body = {n: v for n, v in _filtered(pkgs).items() if n != "databricks-connect"}
+    body = {n: v for n, v in _filtered(pkgs, env_name).items() if n != "databricks-connect"}
     out = [f"# constraints.txt file for Databricks {_label(env_name)}", ""]
     out += [req(n, body[n]) for n in sorted(body)]
     return "\n".join(out) + "\n"
