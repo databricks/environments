@@ -45,8 +45,9 @@ DROP = {
     "autocommand", "inflect", "typeguard", "backports-tarfile",
     "importlib-resources", "more-itertools",
     # GPU-only: need an NVIDIA GPU + CUDA toolchain a dev machine does not have.
-    # (The nvidia-* CUDA runtime libs are dropped by prefix below.)
-    "triton", "flash-attn", "deepspeed",
+    # (The nvidia-* CUDA runtime libs are dropped by prefix below.) horovod is the
+    # same class — a source-only distribution needing MPI/NCCL + a compiler to build.
+    "triton", "flash-attn", "deepspeed", "horovod",
 }
 DROP_PREFIX = (
     "jaraco-",        # jaraco.collections / jaraco.context / ... (setuptools-vendored)

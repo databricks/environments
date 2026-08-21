@@ -22,6 +22,7 @@ class FilterTest(unittest.TestCase):
             "triton": "3.3.0",
             "flash-attn": "2.7.4.post1",
             "deepspeed": "0.16.5",
+            "horovod": "0.28.1",
             "numpy": "2.1.3",
         }
         self.assertEqual(_filtered(pkgs), {"numpy": "2.1.3"})

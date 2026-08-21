@@ -106,7 +106,6 @@ constraint-dependencies = [
     "h11~=0.14.0",
     "h5py~=3.7.0",
     "holidays~=0.27.1",
-    "horovod~=0.28.1",
     "htmlmin~=0.1.12",
     "httplib2~=0.20.2",
     "httptools~=0.6.0",

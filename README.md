@@ -67,9 +67,9 @@ stay resolvable. Applied to **both** `pyproject.toml` and `constraints.txt`:
 - **setuptools-vendored** (dropped) — `more-itertools`, `jaraco-*`, `inflect`,
   `typeguard`, … — shipped inside setuptools, not installed standalone.
 - **GPU-only distributions** (dropped) — the `nvidia-*` CUDA runtime components, plus
-  `triton`, `flash-attn`, `deepspeed`: they need an NVIDIA GPU (and CUDA toolchain) a
-  dev machine lacks. (`nvidia-ml-py` is pure Python but useless without a driver, and
-  is dropped by the same `nvidia-` prefix.)
+  `triton`, `flash-attn`, `deepspeed`, `horovod`: they need an NVIDIA GPU (and a CUDA
+  toolchain / MPI to build) a dev machine lacks. (`nvidia-ml-py` is pure Python but
+  useless without a driver, and is dropped by the same `nvidia-` prefix.)
 - **Local version segments** (stripped, not dropped) — a `+cpu` / `+cuXXX` / `+db1`
   segment names a build published only off-index (`download.pytorch.org`) or rebuilt
   inside the image, and `~=` is invalid with a local segment. The segment is stripped
