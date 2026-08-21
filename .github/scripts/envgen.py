@@ -20,10 +20,10 @@ a developer machine:
     packages dropped     be pip-installed locally or that ship vendored inside
                          setuptools (see DROP / DROP_PREFIX). py4j is kept; pyspark
                          is dropped so DB Connect supplies its own bundled build.
-  * Non-local builds   - packages carrying a PEP 440 local version segment
-    dropped              (``+cu129`` / ``+cpu`` / ``+db1``) resolve nowhere off the
+  * Local-version and  - packages carrying a PEP 440 local version segment
+    GPU builds dropped   (``+cu129`` / ``+cpu`` / ``+db1``) resolve nowhere off the
                          cluster image, and GPU-only distributions (``nvidia-*`` CUDA
-                         components, triton, flash-attn, deepspeed) need a GPU a dev
+                         wheels, triton, flash-attn, deepspeed) need a GPU a dev
                          machine lacks. Both are dropped (see ``_filtered`` / DROP).
   * requires-python    - taken from the runtime's Python version (major.minor).
 
@@ -45,7 +45,7 @@ DROP = {
 }
 DROP_PREFIX = (
     "jaraco-",        # jaraco.collections / jaraco.context / ... (setuptools-vendored)
-    "nvidia-",        # nvidia-*-cu12 and friends: CUDA runtime components, GPU-only
+    "nvidia-",        # nvidia-* CUDA wheels (and nvidia-ml-py): GPU tooling, no local use
 )
 
 

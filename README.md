@@ -129,5 +129,7 @@ doc for the full rationale.
 - [x] Serverless (v1–vN) — auto-discovered + synced; ML base environment (`-ml`) when published (v5+)
 - [x] DBR standard runtimes — auto-discovered from the index + HTML-table parsing
 - [x] DBR ML runtimes (CPU + GPU) — downloadable requirements or inline tables
-- [ ] PyTorch index config in ML `pyproject.toml` (so `uv` fetches the matching
-      `+cpu` / `+cuXXX` torch build, not just pins it)
+- [ ] PyTorch index config in ML `pyproject.toml`. Today the `+cpu` / `+cuXXX`
+      torch/torchvision builds are dropped (see [What's dropped](#whats-dropped));
+      adding PyTorch's index would let `uv` resolve the matching build, so they could
+      be pinned instead of dropped.
