@@ -51,10 +51,10 @@ serverless), so resolving a target to its artifact is a deterministic lookup.
   so the pip path is constraints-only unless DB Connect is installed explicitly.
 
 Both are a mechanical transform of the official package list published in the
-Databricks release notes — see [What's dropped](#whats-dropped) and
+Databricks release notes — see [what is intentionally not included](#what-is-intentionally-not-included) and
 `.github/scripts/envgen.py` for the rules.
 
-## What's dropped
+## What is intentionally not included
 
 Not every package in the release-notes list becomes a local constraint. `envgen.py`
 drops the ones that can't — or shouldn't — install on a developer machine, so that
@@ -103,7 +103,7 @@ is best-effort. Nobody hand-edits the `python/` artifacts.
   downloadable `requirements-{cpu,gpu}-*.txt`; older ones render inline tables under
   `python-libraries-on-{cpu,gpu}-clusters`. The GPU set lists the CUDA builds
   (e.g. `torch …+cu118`) and the CPU set lists `…+cpu`, but these `+local` builds are
-  dropped from the generated artifacts (see [What's dropped](#whats-dropped)) — they
+  dropped from the generated artifacts (see [what is intentionally not included](#what-is-intentionally-not-included)) — they
   resolve nowhere off the cluster image.
 
 The Action runs it; you only need to run it locally to debug:
@@ -130,6 +130,6 @@ doc for the full rationale.
 - [x] DBR standard runtimes — auto-discovered from the index + HTML-table parsing
 - [x] DBR ML runtimes (CPU + GPU) — downloadable requirements or inline tables
 - [ ] PyTorch index config in ML `pyproject.toml`. Today the `+cpu` / `+cuXXX`
-      torch/torchvision builds are dropped (see [What's dropped](#whats-dropped));
+      torch/torchvision builds are dropped (see [what is intentionally not included](#what-is-intentionally-not-included));
       adding PyTorch's index would let `uv` resolve the matching build, so they could
       be pinned instead of dropped.
