@@ -51,7 +51,36 @@ serverless), so resolving a target to its artifact is a deterministic lookup.
   so the pip path is constraints-only unless DB Connect is installed explicitly.
 
 Both are a mechanical transform of the official package list published in the
-Databricks release notes — see `.github/scripts/envgen.py` for the rules.
+Databricks release notes — see [what is intentionally not included](#what-is-intentionally-not-included) and
+`.github/scripts/envgen.py` for the rules.
+
+## What is intentionally not included
+
+Not every package in the release-notes list is emitted verbatim. `envgen.py` drops
+the ones that can't — or shouldn't — install on a developer machine, and strips
+version markers that would make a pin unresolvable, so `uv sync` / `pip install -c`
+stay resolvable. Applied to **both** `pyproject.toml` and `constraints.txt`:
+
+- **System / OS packages** (dropped) — `pip`, `pyspark` (DB Connect supplies its own
+  bundled build; `py4j` is kept), `dbus-python`, `pygobject`, `unattended-upgrades`,
+  `python-apt`, `distro-info`.
+- **setuptools-vendored** (dropped) — `more-itertools`, `jaraco-*`, `inflect`,
+  `typeguard`, … — shipped inside setuptools, not installed standalone.
+- **GPU-only distributions** (dropped) — the `nvidia-*` and `cuda-*` CUDA runtime
+  components and tooling, plus `triton`, `flash-attn`, `deepspeed`, `horovod`,
+  `pynvml`: they need an NVIDIA GPU (and a CUDA toolchain / MPI to build) a dev machine
+  lacks. (`nvidia-ml-py` and `pynvml` are pure-Python NVML bindings — installable
+  anywhere but useless without a driver, so dropped by prefix/name.)
+- **Local version segments** (stripped, not dropped) — a `+cpu` / `+cuXXX` / `+db1`
+  segment names a build published only off-index (`download.pytorch.org`) or rebuilt
+  inside the image, and `~=` is invalid with a local segment. The segment is stripped
+  and the base release pinned (`torch 2.9.0+cu129` → `torch~=2.9.0`, `flask 1.1.2+db1`
+  → `flask~=1.1.2`), so `uv` resolves a platform-appropriate wheel. (Ubuntu system
+  builds like `python-apt 2.7.7+ubuntu5.2` are dropped by name above instead, since
+  their base version is not on PyPI.)
+
+The exact lists live in `DROP` / `DROP_PREFIX` and `_filtered()` / `req()` in
+`.github/scripts/envgen.py`.
 
 ## How it stays in sync
 
@@ -77,9 +106,10 @@ is best-effort. Nobody hand-edits the `python/` artifacts.
 - **DBR ML (CPU + GPU)** — for each `*-ml` runtime, a separate environment is produced
   per cluster type: `<ver>.x-cpu-ml-…` and `<ver>.x-gpu-ml-…`. Newer ML pages link
   downloadable `requirements-{cpu,gpu}-*.txt`; older ones render inline tables under
-  `python-libraries-on-{cpu,gpu}-clusters`. The GPU set carries the CUDA builds
-  (e.g. `torch==…+cu118`); the CPU set carries `…+cpu`. Local builds are pinned with
-  `==` (compatible-release `~=` is invalid with a `+local` segment).
+  `python-libraries-on-{cpu,gpu}-clusters`. The GPU set lists the CUDA builds
+  (e.g. `torch …+cu118`) and the CPU set lists `…+cpu`; the generated artifacts strip
+  the `+local` segment and pin the base release (see
+  [what is intentionally not included](#what-is-intentionally-not-included)).
 
 The Action runs it; you only need to run it locally to debug:
 
@@ -104,5 +134,7 @@ doc for the full rationale.
 - [x] Serverless (v1–vN) — auto-discovered + synced; ML base environment (`-ml`) when published (v5+)
 - [x] DBR standard runtimes — auto-discovered from the index + HTML-table parsing
 - [x] DBR ML runtimes (CPU + GPU) — downloadable requirements or inline tables
-- [ ] PyTorch index config in ML `pyproject.toml` (so `uv` fetches the matching
-      `+cpu` / `+cuXXX` torch build, not just pins it)
+- [ ] PyTorch index config in ML `pyproject.toml`. Today the `+cpu` / `+cuXXX`
+      torch/torchvision builds are stripped to a base pin (see [what is intentionally not included](#what-is-intentionally-not-included));
+      adding PyTorch's index would let `uv` fetch the exact `+cpu` / `+cuXXX` build the
+      runtime ships, rather than a base-version wheel.
