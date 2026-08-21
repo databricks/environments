@@ -56,7 +56,6 @@ datasets~=2.15.0
 dbl-tempo~=0.1.26
 debugpy~=1.6.7
 decorator~=5.1.1
-deepspeed~=0.12.4
 defusedxml~=0.7.1
 dill~=0.3.6
 diskcache~=5.6.3
@@ -281,8 +280,6 @@ tinycss2~=1.2.1
 tokenize-rt~=4.2.1
 tokenizers~=0.15.0
 tomli~=2.0.1
-torch==2.0.1+cpu
-torchvision==0.15.2+cpu
 tornado~=6.1
 tqdm~=4.64.1
 traitlets~=5.7.1
