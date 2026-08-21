@@ -25,8 +25,10 @@ a developer machine:
                          (``torch 2.9.0+cu129`` -> ``torch~=2.9.0``); ``~=`` is
                          invalid with a local segment and the build exists only
                          off-index, while its base is an ordinary PyPI release. See ``req``.
-  * GPU-only dropped   - ``nvidia-*`` CUDA wheels, triton, flash-attn and deepspeed
-                         need a GPU a dev machine lacks (see DROP / DROP_PREFIX).
+  * GPU-only dropped   - ``nvidia-*`` / ``cuda-*`` CUDA wheels and tooling, plus
+                         triton, flash-attn, deepspeed, horovod and pynvml — all need
+                         a GPU (and CUDA/MPI toolchain) a dev machine lacks (see
+                         DROP / DROP_PREFIX).
   * requires-python    - taken from the runtime's Python version (major.minor).
 
 This module is imported by ``sync.py`` (the weekly discovery + reconciliation Action).
@@ -45,13 +47,15 @@ DROP = {
     "autocommand", "inflect", "typeguard", "backports-tarfile",
     "importlib-resources", "more-itertools",
     # GPU-only: need an NVIDIA GPU + CUDA toolchain a dev machine does not have.
-    # (The nvidia-* CUDA runtime libs are dropped by prefix below.) horovod is the
-    # same class — a source-only distribution needing MPI/NCCL + a compiler to build.
-    "triton", "flash-attn", "deepspeed", "horovod",
+    # (nvidia-* / cuda-* are dropped by prefix below.) horovod is the same class — a
+    # source-only distribution needing MPI/NCCL + a compiler to build. pynvml is the
+    # NVML binding (same as nvidia-ml-py); useless without a driver.
+    "triton", "flash-attn", "deepspeed", "horovod", "pynvml",
 }
 DROP_PREFIX = (
     "jaraco-",        # jaraco.collections / jaraco.context / ... (setuptools-vendored)
     "nvidia-",        # nvidia-* CUDA wheels (and nvidia-ml-py): GPU tooling, no local use
+    "cuda-",          # cuda-toolkit / cuda-bindings / cuda-pathfinder: CUDA tooling, GPU-only
 )
 
 

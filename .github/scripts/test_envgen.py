@@ -23,6 +23,9 @@ class FilterTest(unittest.TestCase):
             "flash-attn": "2.7.4.post1",
             "deepspeed": "0.16.5",
             "horovod": "0.28.1",
+            "pynvml": "11.5.0",
+            "cuda-toolkit": "13.0.2",
+            "cuda-bindings": "13.2.0",
             "numpy": "2.1.3",
         }
         self.assertEqual(_filtered(pkgs), {"numpy": "2.1.3"})
