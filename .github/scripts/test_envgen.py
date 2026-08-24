@@ -41,6 +41,34 @@ class FilterTest(unittest.TestCase):
         self.assertEqual(_filtered(pkgs), pkgs)
 
 
+class EnvScopedDropTest(unittest.TestCase):
+    def test_pandas_dropped_on_py312_1_5_runtimes(self):
+        # DBR 16.4 + serverless-v3 are the only Python-3.12 runtimes still on
+        # pandas 1.5.x, which has no cp312 wheel — dropped for just these envs.
+        pkgs = {"pandas": "1.5.3", "numpy": "2.1.3"}
+        for env in (
+            "16.4.x-scala2.12",
+            "16.4.x-cpu-ml-scala2.12",
+            "16.4.x-gpu-ml-scala2.12",
+            "serverless-v3",
+        ):
+            self.assertEqual(_filtered(pkgs, env), {"numpy": "2.1.3"}, env)
+
+    def test_pandas_kept_elsewhere(self):
+        # Other runtimes keep pandas: pre-3.12 envs have wheels for 1.5.x, and
+        # 17.3+/serverless-v4+ already ship pandas 2.x. No env_name = no scoped drop.
+        pkgs = {"pandas": "1.5.3", "numpy": "2.1.3"}
+        for env in ("15.4.x-scala2.12", "17.3.x-scala2.13", "serverless-v4", None):
+            self.assertEqual(_filtered(pkgs, env), pkgs, env)
+
+    def test_pandas_kept_if_repinned_to_cp312_version(self):
+        # The drop is version-gated so it self-expires: if a maintenance update ever
+        # re-pins pandas to a cp312-wheel release (2.x) on these envs, the pin is kept,
+        # not silently dropped.
+        pkgs = {"pandas": "2.2.3", "numpy": "2.1.3"}
+        self.assertEqual(_filtered(pkgs, "16.4.x-scala2.12"), pkgs)
+
+
 class ReqTest(unittest.TestCase):
     def test_strips_local_version_segment(self):
         # ~= is invalid with a local segment (PEP 440), and the segment names a build
