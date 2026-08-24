@@ -7,11 +7,11 @@ a developer machine:
 
   * Names normalized   - lowercased, ``_``/``.`` -> ``-`` (Cython -> cython).
   * ``==`` -> ``~=``    - allow security/patch bumps within a minor.
-  * databricks-sdk     - widened to ``~=MAJOR.MINOR`` (``>=X.Y, <X+1``) instead of the
-                         default single-patch-line pin, because databricks-connect
-                         (installed from the dev group) declares its own databricks-sdk
-                         floor which can be newer than the release-notes table lists.
-                         See ``req`` for the full rationale.
+  * connect-governed   - databricks-sdk, grpcio and grpcio-status are widened to
+    widened              ``~=MAJOR.MINOR`` instead of the default single-patch pin,
+                         because databricks-connect (installed from the dev group)
+                         governs their versions and can require outside the runtime's
+                         patch line. See ``req`` (CONNECT_GOVERNED) / issues #16,#19,#20.
   * databricks-connect - pinned to ``~=MAJOR.MINOR.0`` and emitted into
                          ``[dependency-groups].dev`` of the pyproject (installed by
                          default under uv); omitted from constraints.txt so the pip
@@ -81,6 +81,12 @@ DROP_BY_ENV = {
     "serverless-v3": {"pandas": "1.5."},
 }
 
+# Packages whose exact version databricks-connect (installed from the dev group)
+# governs, and can require outside the runtime's patch line. Their pin is widened to
+# ~=MAJOR.MINOR so the runtime version stays the floor while databricks-connect's own
+# metadata (and wheel availability) picks the version in-range. See req() / issue #16.
+CONNECT_GOVERNED = {"databricks-sdk", "grpcio", "grpcio-status"}
+
 
 def norm(name):
     # Strip the '*' footnote marker the release-notes tables append to some package
@@ -99,19 +105,21 @@ def req(name, version):
     Ubuntu system builds like ``python-apt 2.7.7+ubuntu5.2`` would strip to a bogus
     PyPI pin, so those are dropped by name in ``DROP`` before reaching here.
 
-    ``databricks-sdk`` is a special case. It moves in lockstep with
-    ``databricks-connect``, which is installed from PyPI in the dev group and declares
-    its own ``databricks-sdk`` floor — and that floor can be *newer* than the version
-    the release-notes "Installed Python libraries" table lists (e.g. DBR 18.2 lists
-    ``databricks-sdk 0.67.0``, but ``databricks-connect~=18.2.0`` requires
-    ``databricks-sdk>=0.93,<1``). Pinning it to a single patch line (``~=0.67.0`` →
-    ``>=0.67.0,<0.68``) then makes ``uv sync`` unresolvable. Widening it to its
-    ``MAJOR.MINOR`` (``~=0.67`` → ``>=0.67,<1``) keeps the runtime's version as the
-    floor while letting databricks-connect's own metadata govern the exact version
-    within that window. See issue #16.
+    ``databricks-sdk``, ``grpcio`` and ``grpcio-status`` (CONNECT_GOVERNED) are a
+    special case: they move in lockstep with ``databricks-connect``, which is installed
+    from PyPI in the dev group and governs their versions — and its requirement can be
+    *newer* than the version the release-notes "Installed Python libraries" table lists
+    (e.g. DBR 18.2 lists ``databricks-sdk 0.67.0`` but ``databricks-connect~=18.2.0``
+    requires ``databricks-sdk>=0.93,<1``; DBR 14.3 lists ``grpcio-status 1.48.1`` but
+    connect requires ``grpcio-status>=1.56``). A single-patch-line pin (``~=0.67.0`` →
+    ``>=0.67.0,<0.68``) then makes ``uv sync`` unresolvable, and an old patch line can
+    also lack a wheel for the local platform (``grpcio 1.48.x`` has no macOS-arm64
+    wheel). Widening to ``MAJOR.MINOR`` (``~=0.67`` → ``>=0.67,<1``) keeps the runtime's
+    version as the floor while letting databricks-connect's metadata and wheel
+    availability pick the exact version in-range. See issues #16, #19, #20.
     """
     version = version.split("+", 1)[0]
-    if name == "databricks-sdk":
+    if name in CONNECT_GOVERNED:
         version = ".".join(version.split(".")[:2])
     return f"{name}~={version}"
 

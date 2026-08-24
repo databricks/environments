@@ -83,6 +83,14 @@ class ReqTest(unittest.TestCase):
     def test_databricks_sdk_widened_to_major_minor(self):
         self.assertEqual(req("databricks-sdk", "0.67.0"), "databricks-sdk~=0.67")
 
+    def test_grpc_family_widened_to_major_minor(self):
+        # grpcio / grpcio-status move with databricks-connect (installed from the dev
+        # group), which can require a version outside the runtime's patch line — so
+        # widen them to MAJOR.MINOR like databricks-sdk, keeping the runtime as floor.
+        self.assertEqual(req("grpcio", "1.48.2"), "grpcio~=1.48")
+        self.assertEqual(req("grpcio-status", "1.48.1"), "grpcio-status~=1.48")
+        self.assertEqual(req("grpcio", "1.67.0"), "grpcio~=1.67")
+
 
 class BuildArtifactsTest(unittest.TestCase):
     # torchmetrics is a real ML package that must survive; it also guards against a
