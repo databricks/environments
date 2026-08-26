@@ -202,16 +202,19 @@ def dbr_scalas(html):
     differ, which this repo doesn't consume), so the caller writes one folder per Scala
     version off the same package set.
 
-    Capture the whole field value up to the list item's close and take each MAJOR.MINOR
-    (the '(?:\\.\\d+)?' consumes the patch so '2.12.15' contributes '2.12', not '2.12'
-    plus a stray '.15'); fall back to a single match if the item isn't delimited as
-    expected so a layout change degrades to today's behaviour rather than to nothing."""
+    Capture the whole field value up to the list item's close, strip inline tags
+    (mirroring ``table_pkgs``) so a digit inside an attribute/href -- e.g. a linked
+    Spark version -- can't be read as a Scala version, then take each MAJOR.MINOR (the
+    '(?:\\.\\d+)?' consumes the patch so '2.12.15' contributes '2.12', not '2.12' plus a
+    stray '.15'); fall back to a single match if the item isn't delimited as expected
+    so a layout change degrades to today's behaviour rather than to nothing."""
     field = re.search(r"Scala</strong>\s*:(.*?)</li>", html, re.S)
     if not field:
         m = re.search(r"Scala</strong>\s*:\s*(\d+\.\d+)", html)
         return [m.group(1)] if m else []
+    text = re.sub(r"<[^>]+>", " ", field.group(1))
     scalas = []
-    for v in re.findall(r"(\d+\.\d+)(?:\.\d+)?", field.group(1)):
+    for v in re.findall(r"(\d+\.\d+)(?:\.\d+)?", text):
         if v not in scalas:
             scalas.append(v)
     return scalas

@@ -38,6 +38,16 @@ class DbrScalasTest(unittest.TestCase):
         # match rather than to nothing.
         self.assertEqual(dbr_scalas("<strong>Scala</strong>: 2.13.16"), ["2.13"])
 
+    def test_ignores_version_like_numbers_inside_tags(self):
+        # A version-like number that lives only inside a tag (an href/attribute, not
+        # the visible text) must not be read as a Scala version and spawn a bogus
+        # environment. Here the visible value is 2.13.16; the '3.5' is only in a link.
+        html = (
+            "<li><strong>Scala</strong>: 2.13.16 "
+            '<a href="https://spark.apache.org/docs/3.5/">docs</a></li>'
+        )
+        self.assertEqual(dbr_scalas(html), ["2.13"])
+
 
 class DbrMetaTest(unittest.TestCase):
     def test_dual_variant_yields_both_scalas(self):
