@@ -78,6 +78,11 @@ DROP_BY_ENV = {
     "16.4.x-scala2.12": {"pandas": "1.5."},
     "16.4.x-cpu-ml-scala2.12": {"pandas": "1.5."},
     "16.4.x-gpu-ml-scala2.12": {"pandas": "1.5."},
+    # DBR 16.4 also ships a Scala 2.13 image (same Python packages, so same pandas
+    # 1.5.x-on-cp312 problem). Drop it for those envs too, keyed by their own names.
+    "16.4.x-scala2.13": {"pandas": "1.5."},
+    "16.4.x-cpu-ml-scala2.13": {"pandas": "1.5."},
+    "16.4.x-gpu-ml-scala2.13": {"pandas": "1.5."},
     "serverless-v3": {"pandas": "1.5."},
 }
 
