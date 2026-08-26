@@ -48,6 +48,12 @@ class DbrScalasTest(unittest.TestCase):
         )
         self.assertEqual(dbr_scalas(html), ["2.13"])
 
+    def test_ignores_trailing_annotation(self):
+        # Only the leading 'X or Y' enumeration is the Scala version list; a trailing
+        # visible annotation (e.g. the Spark version) must not contribute a version.
+        html = "<li><strong>Scala</strong>: 2.12.15 or 2.13.10 (Apache Spark 3.5)</li>"
+        self.assertEqual(dbr_scalas(html), ["2.12", "2.13"])
+
 
 class DbrMetaTest(unittest.TestCase):
     def test_dual_variant_yields_both_scalas(self):

@@ -110,8 +110,11 @@ is best-effort. Nobody hand-edits the `python/` artifacts.
   [runtime release-notes index](https://docs.databricks.com/aws/en/release-notes/runtime/),
   then for each fetches the page and parses the "Installed Python libraries" HTML
   table. The repo key (`<ver>.x-scala<scala>`) is built from the page's title and the
-  Scala version in its System environment. DBR pages don't list `databricks-connect`,
-  so its dev pin is derived from the runtime version.
+  Scala version in its System environment. A release that ships two Scala images from
+  one page (e.g. DBR 16.4 LTS — `Scala: 2.12.15 or 2.13.10`) yields one environment per
+  Scala version (`…-scala2.12` and `…-scala2.13`), both off the page's single Python
+  library table. DBR pages don't list `databricks-connect`, so its dev pin is derived
+  from the runtime version.
 - **DBR ML (CPU + GPU)** — for each `*-ml` runtime, a separate environment is produced
   per cluster type: `<ver>.x-cpu-ml-…` and `<ver>.x-gpu-ml-…`. Newer ML pages link
   downloadable `requirements-{cpu,gpu}-*.txt`; older ones render inline tables under
