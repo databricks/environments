@@ -286,63 +286,131 @@ def discover_dbr(ml=False):
     return out
 
 
-def dbr_point_releases(index_slug, ml=False, max_minor=10):
-    """Expand an index slug into the concrete page slugs to generate a folder for.
+def _umbrella_major(index_slug):
+    """The bare major an umbrella-scheme line's folder is keyed by, or None for the
+    pre-18 scheme (where the folder minor is read from the page title instead).
 
-    DBR changed its versioning scheme at 18: the index links a single umbrella slug
-    ('18' / '18ml', titled 'Databricks Runtime 18 LTS ...') whose point releases live at
-    their own pages ('18.0', '18.1', '18.2', and the ML '18.0ml' ...). Pre-18 lines keep
-    the old scheme — the index slug ('17.3lts') is itself the runtime page.
+    DBR changed its versioning at 18: those index slugs are the bare major ('18', '18ml',
+    '19', '19ml'), and a cluster addresses the whole line by that bare major in its
+    ``spark_version`` ('18.x-scala2.13'). So the folder drops the minor to match — even
+    though the packages, Scala/Python and databricks-connect pin come from the latest live
+    point release page (see ``dbr_point_releases``). Pre-18 lines ('17.3lts', '16.4lts-ml')
+    keep the old scheme (the index slug is itself the runtime page) and return None."""
+    core = re.sub(r"(lts)?(-?ml)?$", "", index_slug)   # 18ml -> 18 ; 17.3lts-ml -> 17.3
+    return core if re.fullmatch(r"\d+", core) else None
 
-    For a bare-major umbrella slug we probe '<major>.<minor>[ml]' for minor 0..max_minor,
-    stopping after two consecutive 404s (end-of-list), and return the LIVE (non-EoS) ones.
-    If a bare major has no point-release pages yet (e.g. DBR 19 today), we fall back to the
-    umbrella slug itself so its folder is still generated. Non-umbrella slugs are returned
-    as-is when live. Each returned slug is meant to be fed to dbr_meta so the minor is read
-    from that page's own title rather than defaulted.
+
+def dbr_point_releases(index_slug, ml=False, max_minor=50):
+    """Return ``(pointrelease_slugs, umbrella_slug)`` for a runtime line: the page slugs to
+    generate individual '<minor>.x' folders from, and the page the bare-major '<major>.x'
+    umbrella folder is generated from (or None when there is none, or it isn't safe this run).
+
+    DBR changed its versioning at 18: the index links a bare-major umbrella slug ('18' /
+    '18ml') whose point releases live at their own pages ('18.0', '18.1', '18.2', ...).
+    Clusters address such a line either by a specific point release ('18.2.x-...') or by the
+    bare major ('18.x-...') depending on client version (telemetry shows both in live use),
+    so we publish BOTH: one folder per live point release, and one bare-major umbrella folder
+    taken from the LATEST live point release (whose databricks-connect minor it pins). Pre-18
+    lines keep the old scheme — the index slug ('17.3lts') is itself the runtime page and has
+    no umbrella form, so umbrella_slug is None.
+
+    We probe '<major>.<minor>[ml]' from minor 0, stopping after two consecutive 404s once a
+    page has been seen (leading 404s — e.g. a removed old page — don't end the list before a
+    later release is found); ``max_minor`` is only a runaway backstop set well beyond any
+    real line's point-release count, not the normal terminator. An EoS point release exists
+    (retired, not end-of-list), so it is skipped without ending the probe and is not
+    published. The umbrella comes from the newest live point release, EXCEPT when a probe
+    newer than that was left indeterminate by a transient error — then umbrella_slug is None
+    so a flaky run can't downgrade the umbrella, while the point-release folders it did
+    confirm are still returned. If the whole line is EoS, both are empty. If a bare major has
+    no point-release pages at all (e.g. DBR 19 today), there are no point-release folders and
+    the umbrella falls back to the umbrella page itself. Slugs are meant to be fed to dbr_meta.
     """
-    core = re.sub(r"(lts)?(-?ml)?$", "", index_slug)   # '18ml'->'18' ; '17.3lts-ml'->'17.3'
+    major = _umbrella_major(index_slug)
     suffix = "ml" if ml else ""
 
     def live_page(slug):
-        """(html, ok): html of the page if live (None when 404 or EoS), and ok=False on a
-        transient fetch error so the caller can distinguish "confirmed absent" from
-        "couldn't tell". Transient errors (timeout, 5xx) are logged and never mistaken for
-        a 404, mirroring discover_serverless — a flaky run must not abort the sync or be
-        read as end-of-list."""
+        """Probe one page, returning one of:
+          'live'   (with html) — a live, non-EoS runtime page.
+          'eos'    — the page exists but the runtime is end-of-support: skip it, but it is
+                     NOT end-of-list, so keep probing higher minors.
+          'absent' — a genuine 404: counts toward the two-consecutive end-of-list break.
+          'error'  — a transient fetch error (timeout, 5xx): logged and never mistaken for
+                     a 404, mirroring discover_serverless — a flaky run must not abort the
+                     sync or be read as end-of-list."""
         try:
             html = fetch_opt(DBR_PAGE.format(slug=slug))
         except Exception as e:
             print(f"  ! dbr [{slug}]: transient fetch error ({e}); skipping (not end-of-list)")
-            return None, False
-        if html is None or is_eos(html):
-            return None, True
-        return html, True
-
-    if not re.fullmatch(r"\d+", core):
-        # Pre-18 scheme: the index slug is the runtime page. Keep it if it's live.
-        html, _ = live_page(index_slug)
-        return [index_slug] if html else []
-
-    live, misses = [], 0
-    for minor in range(0, max_minor + 1):
-        slug = f"{core}.{minor}{suffix}"
-        html, ok = live_page(slug)
-        if not ok:
-            # Transient error: skip this minor without advancing the end-of-list counter.
-            continue
+            return "error", None
         if html is None:
+            return "absent", None
+        if is_eos(html):
+            return "eos", None
+        return "live", html
+
+    if not major:
+        # Pre-18 scheme: the index slug is the runtime page; no umbrella form.
+        kind, _ = live_page(index_slug)
+        return ([index_slug], None) if kind == "live" else ([], None)
+
+    live, transient_minors, saw_page, misses = [], [], False, 0
+    for minor in range(0, max_minor + 1):
+        kind, _ = live_page(f"{major}.{minor}{suffix}")
+        if kind == "error":
+            # Record the minor, but don't advance the end-of-list counter (a flaky probe
+            # is not a confirmed 404).
+            transient_minors.append(minor)
+            continue
+        if kind == "eos":
+            # Retired but present — not end-of-list; skip and keep probing.
+            saw_page = True
+            misses = 0
+            continue
+        if kind == "absent":
             misses += 1
-            if misses >= 2:
+            # Only trailing 404s end the list. Don't honor the break until at least one page
+            # (live or EoS) has been seen, so leading 404s — e.g. an old point-release page
+            # that was removed — can't stop the probe before a later live release. Mirrors
+            # the "require at least one found" guard in discover_serverless.
+            if saw_page and misses >= 2:
                 break
             continue
+        saw_page = True
         misses = 0
-        live.append(slug)
+        live.append(minor)
+
     if live:
-        return live
-    # No point-release pages exist yet (e.g. DBR 19) — fall back to the umbrella page.
-    html, _ = live_page(index_slug)
-    return [index_slug] if html else []
+        pointrelease_slugs = [f"{major}.{m}{suffix}" for m in live]
+        latest_minor = live[-1]
+        if any(t > latest_minor for t in transient_minors):
+            # A point release newer than our latest was left indeterminate by a transient
+            # error this run. Regenerating the '<major>.x' umbrella from the older confirmed
+            # release would silently downgrade the folder a bare-major spark_version serves,
+            # so keep the confirmed point-release folders but skip the umbrella — a clean run
+            # picks up the true latest (the existing umbrella folder stays untouched).
+            print(f"  ! dbr [{major}.x]: a point release newer than {major}.{latest_minor} "
+                  f"was indeterminate (transient error); keeping point releases, skipping "
+                  f"the umbrella to avoid a downgrade")
+            return pointrelease_slugs, None
+        return pointrelease_slugs, f"{major}.{latest_minor}{suffix}"
+
+    if transient_minors:
+        # Nothing was confirmed live, but a probe was indeterminate — we can't be sure the
+        # line has no point release, so don't fall back to the umbrella page (which could
+        # generate the folder from the wrong metadata). Skip; a clean run resolves it.
+        print(f"  ! dbr [{major}.x]: no live point release confirmed and a probe was "
+              f"indeterminate (transient error); skipping this run")
+        return [], None
+    if saw_page:
+        # Point-release pages exist but none are live — the line is fully EoS (retired).
+        # EoS lines are not published, so don't fall back to the umbrella page (which may
+        # not yet carry the EoS marker itself). Any folders already published for this line
+        # are left as-is; pruning retired lines is out of scope (sync only writes).
+        return [], None
+    # No point-release page exists at all (e.g. DBR 19 today) — fall back to the umbrella page.
+    kind, _ = live_page(index_slug)
+    return ([], index_slug) if kind == "live" else ([], None)
 
 
 def _write_env(key, pkgs, python_version, dbconnect):
@@ -357,7 +425,10 @@ def _write_env(key, pkgs, python_version, dbconnect):
 
 def sync_dbr():
     for index_slug in discover_dbr():
-        for slug in dbr_point_releases(index_slug, ml=False):
+        major = _umbrella_major(index_slug)
+        pointrelease_slugs, umbrella_slug = dbr_point_releases(index_slug, ml=False)
+        # The umbrella slug is usually also one of the point releases — fetch each page once.
+        for slug in dict.fromkeys(pointrelease_slugs + ([umbrella_slug] if umbrella_slug else [])):
             try:
                 html = fetch(DBR_PAGE.format(slug=slug))
             except Exception as e:
@@ -369,8 +440,17 @@ def sync_dbr():
                 print(f"  ! dbr [{slug}]: no meta / Python table; skipping")
                 continue
             key_ver, dbconnect_ver, scalas, python_version = meta
-            for scala in scalas:
-                _write_env(f"{key_ver}.x-scala{scala}", pkgs, python_version, dbconnect_ver)
+            # A live point release publishes its own '<minor>.x' folder (pre-18: the whole
+            # line). The newest live one ALSO publishes the bare-major '<major>.x' umbrella
+            # that a DBR 18+ cluster's spark_version resolves to — in ADDITION to its own
+            # folder, so the umbrella page (18.2) yields both '18.2.x' and '18.x'. Both use
+            # this page's dbconnect_ver (the latest point release's databricks-connect minor).
+            folder_vers = [key_ver] if slug in pointrelease_slugs else []
+            if major and slug == umbrella_slug:
+                folder_vers.append(major)
+            for folder_ver in folder_vers:
+                for scala in scalas:
+                    _write_env(f"{folder_ver}.x-scala{scala}", pkgs, python_version, dbconnect_ver)
 
 
 def ml_variant_pkgs(ml_html, variant):
@@ -387,11 +467,17 @@ def ml_variant_pkgs(ml_html, variant):
 
 def sync_dbr_ml():
     for index_slug in discover_dbr(ml=True):
-        for slug in dbr_point_releases(index_slug, ml=True):
-            _sync_dbr_ml_page(slug)
+        major = _umbrella_major(index_slug)
+        pointrelease_slugs, umbrella_slug = dbr_point_releases(index_slug, ml=True)
+        for slug in dict.fromkeys(pointrelease_slugs + ([umbrella_slug] if umbrella_slug else [])):
+            _sync_dbr_ml_page(
+                slug,
+                point_release=slug in pointrelease_slugs,
+                umbrella_major=major if slug == umbrella_slug else None,
+            )
 
 
-def _sync_dbr_ml_page(slug):
+def _sync_dbr_ml_page(slug, point_release, umbrella_major):
     base = re.sub(r"-?ml$", "", slug)        # 18.2ml -> 18.2 ; 17.3lts-ml -> 17.3lts ; 19ml -> 19
     try:
         base_html = fetch(DBR_PAGE.format(slug=base))
@@ -404,13 +490,17 @@ def _sync_dbr_ml_page(slug):
         print(f"  ! dbr-ml [{slug}]: no base meta from {base}; skipping")
         return
     key_ver, dbconnect_ver, scalas, python_version = meta
+    # A live point release publishes its own '<minor>.x' ML folders; the newest one also
+    # publishes the bare-major '<major>.x' ML umbrella (DBR 18+). Both share dbconnect_ver.
+    folder_vers = ([key_ver] if point_release else []) + ([umbrella_major] if umbrella_major else [])
     for variant in ("cpu", "gpu"):
         pkgs = ml_variant_pkgs(ml_html, variant)
         if not pkgs:
             print(f"  ! dbr-ml [{slug}] {variant}: no packages found; skipping")
             continue
-        for scala in scalas:
-            _write_env(f"{key_ver}.x-{variant}-ml-scala{scala}", pkgs, python_version, dbconnect_ver)
+        for folder_ver in folder_vers:
+            for scala in scalas:
+                _write_env(f"{folder_ver}.x-{variant}-ml-scala{scala}", pkgs, python_version, dbconnect_ver)
 
 
 def git(*args):
