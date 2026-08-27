@@ -54,6 +54,19 @@ class DbrScalasTest(unittest.TestCase):
         html = "<li><strong>Scala</strong>: 2.12.15 or 2.13.10 (Apache Spark 3.5)</li>"
         self.assertEqual(dbr_scalas(html), ["2.12", "2.13"])
 
+    def test_dual_scala_alternate_separators(self):
+        # The two versions must be picked up regardless of the delimiter the page uses
+        # -- not only ' or '. A narrower match silently drops the second variant and
+        # resurrects the 404 this fix exists to prevent.
+        for sep in (" or ", " and ", ", ", ",", " / ", "/", "&nbsp;or&nbsp;"):
+            html = f"<li><strong>Scala</strong>: 2.12.15{sep}2.13.10</li>"
+            self.assertEqual(dbr_scalas(html), ["2.12", "2.13"], repr(sep))
+
+    def test_alternate_separator_still_stops_at_annotation(self):
+        # Widening the separator must not start swallowing trailing annotations.
+        html = "<li><strong>Scala</strong>: 2.12.15, 2.13.10, see Spark 3.5 notes</li>"
+        self.assertEqual(dbr_scalas(html), ["2.12", "2.13"])
+
 
 class DbrMetaTest(unittest.TestCase):
     def test_dual_variant_yields_both_scalas(self):
