@@ -24,6 +24,7 @@ open a PR.
 """
 import argparse
 import hashlib
+import html as html_lib          # aliased: functions here take an ``html`` parameter
 import os
 import re
 import subprocess
@@ -191,30 +192,71 @@ def is_eos(html):
     return "(EoS)" in dbr_title(html)
 
 
+def dbr_scalas(html):
+    """The Scala versions ('2.12', '2.13', ...) a runtime page's System environment
+    lists, in page order and de-duplicated.
+
+    Most runtimes ship one image ('Scala</strong>: 2.13.16' -> ['2.13']). A runtime in
+    the 2.12->2.13 migration window publishes two images from a single page, rendered as
+    'Scala</strong>: 2.12.15 <strong>or</strong> 2.13.10' -> ['2.12', '2.13']. Both
+    images share one 'Installed Python libraries' table (only the Java/Scala libraries
+    differ, which this repo doesn't consume), so the caller writes one folder per Scala
+    version off the same package set.
+
+    Capture the field value up to the list item's close, strip inline tags (mirroring
+    ``table_pkgs``, so a digit inside an attribute/href -- e.g. a linked Spark version
+    -- can't leak in) and unescape entities (so a ``&nbsp;`` delimiter becomes real
+    whitespace). Then read only the leading enumeration: a version, or several joined by
+    delimiters. Matching just that run stops a trailing annotation ('(Apache Spark 3.5)')
+    from contributing a bogus version, while the delimiter class stays deliberately wide
+    -- whitespace, ',', '/', or the words 'or'/'and' -- because narrowing it to the exact
+    ' or ' the page happens to use today would silently drop the second variant (and
+    resurrect the 404) the day a copy-edit changes the separator. Each MAJOR.MINOR is
+    taken with the patch consumed by '(?:\\.\\d+)?' ('2.12.15' -> '2.12', not '2.12' plus
+    a stray '.15'). Fall back to a single match if the item isn't delimited as expected,
+    so a layout change degrades to today's behaviour rather than to nothing."""
+    field = re.search(r"Scala</strong>\s*:(.*?)</li>", html, re.S)
+    if not field:
+        m = re.search(r"Scala</strong>\s*:\s*(\d+\.\d+)", html)
+        return [m.group(1)] if m else []
+    text = html_lib.unescape(re.sub(r"<[^>]+>", " ", field.group(1)))
+    ver = r"\d+\.\d+(?:\.\d+)?"
+    sep = r"(?:[\s,/]|\bor\b|\band\b)+"          # delimiter, never itself a version
+    enum = re.match(rf"\s*({ver}(?:{sep}{ver})*)", text)
+    if not enum:
+        return []
+    scalas = []
+    for v in re.findall(r"(\d+\.\d+)(?:\.\d+)?", enum.group(1)):
+        if v not in scalas:
+            scalas.append(v)
+    return scalas
+
+
 def dbr_meta(html):
-    """Return (key_ver, dbconnect_ver, scala, python_version) from a standard runtime
-    page, or None if any piece is missing.
+    """Return (key_ver, dbconnect_ver, scalas, python_version) from a standard runtime
+    page, or None if any piece is missing. ``scalas`` is a non-empty list (see
+    ``dbr_scalas``); the caller emits one '<key_ver>.x-scala<scala>' folder per entry.
 
     A point-release page carries the minor in its title ('Databricks Runtime 18.2'), so
-    both versions are the real minor: ('18.2', '18.2', '2.13', '3.12.3') -> folder
+    both versions are the real minor: ('18.2', '18.2', ['2.13'], '3.12.3') -> folder
     '18.2.x-scala2.13', databricks-connect~=18.2.0.
 
     An umbrella LTS page has no minor in its title ('Databricks Runtime 19 LTS'). Such a
     line is addressed by its bare major in a cluster's ``spark_version`` ('19.x-scala2.13'),
     so ``key_ver`` drops the minor to match that naming, while ``dbconnect_ver`` still
     defaults the minor to '.0' (databricks-connect is published per point release, so the
-    pin needs a concrete minor): ('19', '19.0', '2.13', '3.12.3') -> folder '19.x-scala2.13',
-    databricks-connect~=19.0.0. Feed point-release pages here (see ``dbr_point_releases``)
-    so a real minor is used whenever one is published."""
+    pin needs a concrete minor): ('19', '19.0', ['2.13'], '3.12.3') -> folder
+    '19.x-scala2.13', databricks-connect~=19.0.0. Feed point-release pages here (see
+    ``dbr_point_releases``) so a real minor is used whenever one is published."""
     ver = re.search(r"<title[^>]*>Databricks Runtime\s+(\d+)(?:\.(\d+))?", html)
-    sc = re.search(r"Scala</strong>\s*:\s*(\d+\.\d+)", html)
+    scalas = dbr_scalas(html)
     pv = re.search(r"Python</strong>\s*:\s*(\d+\.\d+\.\d+)", html)
-    if not (ver and sc and pv):
+    if not (ver and scalas and pv):
         return None
     major, minor = ver.group(1), ver.group(2)
     key_ver = f"{major}.{minor}" if minor else major
     dbconnect_ver = f"{major}.{minor or '0'}"
-    return key_ver, dbconnect_ver, sc.group(1), pv.group(1)
+    return key_ver, dbconnect_ver, scalas, pv.group(1)
 
 
 def parse_dbr_page(html):
@@ -326,8 +368,9 @@ def sync_dbr():
             if not meta or not pkgs:
                 print(f"  ! dbr [{slug}]: no meta / Python table; skipping")
                 continue
-            key_ver, dbconnect_ver, scala, python_version = meta
-            _write_env(f"{key_ver}.x-scala{scala}", pkgs, python_version, dbconnect_ver)
+            key_ver, dbconnect_ver, scalas, python_version = meta
+            for scala in scalas:
+                _write_env(f"{key_ver}.x-scala{scala}", pkgs, python_version, dbconnect_ver)
 
 
 def ml_variant_pkgs(ml_html, variant):
@@ -360,13 +403,14 @@ def _sync_dbr_ml_page(slug):
     if not meta:
         print(f"  ! dbr-ml [{slug}]: no base meta from {base}; skipping")
         return
-    key_ver, dbconnect_ver, scala, python_version = meta
+    key_ver, dbconnect_ver, scalas, python_version = meta
     for variant in ("cpu", "gpu"):
         pkgs = ml_variant_pkgs(ml_html, variant)
         if not pkgs:
             print(f"  ! dbr-ml [{slug}] {variant}: no packages found; skipping")
             continue
-        _write_env(f"{key_ver}.x-{variant}-ml-scala{scala}", pkgs, python_version, dbconnect_ver)
+        for scala in scalas:
+            _write_env(f"{key_ver}.x-{variant}-ml-scala{scala}", pkgs, python_version, dbconnect_ver)
 
 
 def git(*args):
