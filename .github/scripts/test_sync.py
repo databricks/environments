@@ -276,6 +276,35 @@ class DbrPointReleasesTest(unittest.TestCase):
         with mock.patch.object(sync, "fetch_opt", fetch_opt):
             self.assertEqual(sync.dbr_point_releases("18"), (["18.0", "18.2"], "18.2"))
 
+    def test_umbrella_only_line_bounds_probes_to_a_leading_miss_cap(self):
+        # A bare major with NO point-release pages (DBR 19 today) must not probe the whole
+        # minor range hunting for pages that don't exist. The trailing-404 break is gated on
+        # having seen a page, so a line where none is ever seen relies on a separate cap on
+        # consecutive LEADING 404s: after that many, give up and fall back to the umbrella
+        # page. Bounds HTTP cost to a handful of requests rather than ~50 per bare major.
+        # Regression guard for the saw_page-gated break running the full 0..max_minor range.
+        pages = {"19": _titled_page("Databricks Runtime 19 LTS")}
+        calls = []
+
+        def counting(url):
+            calls.append(_slug_of(url))
+            return pages.get(_slug_of(url))
+
+        with mock.patch.object(sync, "fetch_opt", counting):
+            self.assertEqual(sync.dbr_point_releases("19"), ([], "19"))
+        # Five consecutive leading 404s (19.0..19.4) trip the cap; 19.5 is never probed, and
+        # the only further request is the umbrella page itself.
+        self.assertIn("19.4", calls)
+        self.assertNotIn("19.5", calls)
+        self.assertIn("19", calls)
+
+    def test_umbrella_leading_miss_cap_sits_above_the_short_gap_slack(self):
+        # The leading cap must sit above the slack that lets a removed early page not hide a
+        # later live release: four leading 404s then a live release is still discovered.
+        pages = {"18.4": _titled_page("Databricks Runtime 18.4")}
+        with mock.patch.object(sync, "fetch_opt", _fake_fetch_opt(pages)):
+            self.assertEqual(sync.dbr_point_releases("18"), (["18.4"], "18.4"))
+
 
 class SyncDbrFolderKeyTest(unittest.TestCase):
     def test_umbrella_line_publishes_point_releases_and_the_bare_major_umbrella(self):
@@ -300,11 +329,14 @@ class SyncDbrFolderKeyTest(unittest.TestCase):
                 mock.patch.object(sync, "_write_env",
                                   lambda key, pkgs, pv, dbconnect: writes.append((key, dbconnect))):
             sync.sync_dbr()
+        # Point-release folders pin their exact minor (18.1 -> ~=18.1.0); the bare-major
+        # umbrella tracks the whole major line like a serverless major (18 -> ~=18.0), so its
+        # dbconnect is the bare major, not the latest point release's minor.
         self.assertEqual(
             sorted(writes),
             [("18.1.x-scala2.13", "18.1"),
              ("18.2.x-scala2.13", "18.2"),
-             ("18.x-scala2.13", "18.2")],
+             ("18.x-scala2.13", "18")],
         )
         # 18.2 is both a point release and the umbrella source, but is fetched only once.
         self.assertEqual(sorted(fetched), ["18.1", "18.2"])
@@ -321,6 +353,23 @@ class SyncDbrFolderKeyTest(unittest.TestCase):
                                   lambda key, pkgs, pv, dbconnect: writes.append((key, dbconnect))):
             sync.sync_dbr()
         self.assertEqual(writes, [("17.3.x-scala2.13", "17.3")])
+
+    def test_umbrella_only_line_publishes_bare_major_folder_end_to_end(self):
+        # DBR 19 today: no point-release pages, so dbr_point_releases falls back to the
+        # umbrella page. Driven end-to-end through sync_dbr, dbr_meta reads the bare major
+        # from the title ('Databricks Runtime 19 LTS' -> key_ver '19'), and the single
+        # bare-major umbrella folder is pinned to the whole major line (dbconnect '19' ->
+        # ~=19.0), not to a '.0' point release. This is the path where dbr_meta defaults the
+        # minor, so it's the one most worth an end-to-end assertion.
+        pages = {"19": _runtime_page("Databricks Runtime 19 LTS")}
+        writes = []
+        with mock.patch.object(sync, "discover_dbr", return_value=["19"]), \
+                mock.patch.object(sync, "dbr_point_releases", return_value=([], "19")), \
+                mock.patch.object(sync, "fetch", _fake_fetch(pages)), \
+                mock.patch.object(sync, "_write_env",
+                                  lambda key, pkgs, pv, dbconnect: writes.append((key, dbconnect))):
+            sync.sync_dbr()
+        self.assertEqual(writes, [("19.x-scala2.13", "19")])
 
 
 class SyncDbrMlFolderKeyTest(unittest.TestCase):
@@ -339,14 +388,16 @@ class SyncDbrMlFolderKeyTest(unittest.TestCase):
                 mock.patch.object(sync, "_write_env",
                                   lambda key, pkgs, pv, dbconnect: writes.append((key, dbconnect))):
             sync.sync_dbr_ml()
+        # The bare-major ML umbrella folders track the whole major line (dbconnect "18" ->
+        # ~=18.0), while the point-release ML folders keep their exact minor.
         self.assertEqual(
             sorted(writes),
             [("18.1.x-cpu-ml-scala2.13", "18.1"),
              ("18.1.x-gpu-ml-scala2.13", "18.1"),
              ("18.2.x-cpu-ml-scala2.13", "18.2"),
              ("18.2.x-gpu-ml-scala2.13", "18.2"),
-             ("18.x-cpu-ml-scala2.13", "18.2"),
-             ("18.x-gpu-ml-scala2.13", "18.2")],
+             ("18.x-cpu-ml-scala2.13", "18"),
+             ("18.x-gpu-ml-scala2.13", "18")],
         )
 
 
