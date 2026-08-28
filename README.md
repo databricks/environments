@@ -110,7 +110,15 @@ is best-effort. Nobody hand-edits the `python/` artifacts.
   [runtime release-notes index](https://docs.databricks.com/aws/en/release-notes/runtime/),
   then for each fetches the page and parses the "Installed Python libraries" HTML
   table. The repo key (`<ver>.x-scala<scala>`) is built from the page's title and the
-  Scala version in its System environment. A release that ships two Scala images from
+  Scala version in its System environment. From DBR 18 the release notes use an umbrella
+  scheme — a bare-major page (`Databricks Runtime 18 LTS`) with separate point-release
+  pages (`18.0`, `18.1`, …) — and a cluster addresses the line either by a specific point
+  release (`18.2.x-scala2.13`) or by the bare major (`18.x-scala2.13`) depending on client
+  version, so both forms are published: one folder per live point release, plus a
+  bare-major umbrella folder taken from the latest live point release (whose minor sets the
+  `databricks-connect` pin). EoS point releases are skipped. Pre-18 lines keep the old
+  scheme — one folder, keyed by the minor read from the page title. A release that
+  ships two Scala images from
   one page (e.g. DBR 16.4 LTS — `Scala: 2.12.15 or 2.13.10`) yields one environment per
   Scala version (`…-scala2.12` and `…-scala2.13`), both off the page's single Python
   library table. DBR pages don't list `databricks-connect`, so its dev pin is derived
