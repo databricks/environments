@@ -308,10 +308,10 @@ class DbrPointReleasesTest(unittest.TestCase):
     def test_umbrella_leading_miss_cap_gives_up_past_its_bound(self):
         # The accepted trade-off boundary: a live release sitting past a full run of leading
         # 404s (18.0..18.4 all genuine 404s, 18.5 live) is NOT discovered — the cap fires at
-        # 18.4 and 18.5 is never probed, so the line falls back to the umbrella page. This
-        # can only bite if five consecutive point-release pages are genuinely *deleted*
-        # (EoS pages return 'eos', which resets the counter), which upstream doesn't do. This
-        # test locks the cap value so a future change to it is a deliberate, visible edit.
+        # 18.4 and 18.5 is never probed, so the line falls back to the umbrella page. Since
+        # point releases are numbered contiguously from .0, this can only arise if early pages
+        # that once existed were removed (EoS pages return 'eos' and reset the counter), which
+        # upstream doesn't do. This test locks the cap value so a change to it is deliberate.
         pages = {"18.5": _titled_page("Databricks Runtime 18.5"),
                  "18": _titled_page("Databricks Runtime 18 LTS")}
         calls = []

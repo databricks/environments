@@ -379,12 +379,13 @@ def dbr_point_releases(index_slug, ml=False, max_minor=50, max_leading_misses=5)
             # leading 404s (max_leading_misses) is the terminator instead: a bare major with
             # no point-release pages at all (e.g. DBR 19 today) would otherwise probe the full
             # 0..max_minor range every run. Only genuine 404s count here — an EoS page is a
-            # hit (kind 'eos') that resets misses below — and upstream retires a point release
-            # by marking its page '(EoS)', not by deleting it, so a leading 404 means the page
-            # never existed. Five sits comfortably above the trailing slack of 2 (a real line's
-            # point releases are numbered from .0 with no such gap) while bounding the empty
-            # case; the only miss it could cause needs five consecutive point-release pages
-            # genuinely deleted with a later one live, which doesn't happen in practice.
+            # hit (kind 'eos') that resets misses below. A line's point releases are numbered
+            # contiguously from .0, so five consecutive leading 404s mean none were published
+            # (the empty case), not a gap before a later release. Five sits comfortably above
+            # the trailing slack of 2 while bounding that empty case; it could only skip a real
+            # release if five early minors that once existed were later removed while a higher
+            # one stayed live — but upstream retires a page by marking it '(EoS)' (a hit), not
+            # by deleting it, so that doesn't arise.
             cap = 2 if saw_page else max_leading_misses
             if misses >= cap:
                 break
