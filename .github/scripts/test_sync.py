@@ -305,6 +305,25 @@ class DbrPointReleasesTest(unittest.TestCase):
         with mock.patch.object(sync, "fetch_opt", _fake_fetch_opt(pages)):
             self.assertEqual(sync.dbr_point_releases("18"), (["18.4"], "18.4"))
 
+    def test_umbrella_leading_miss_cap_gives_up_past_its_bound(self):
+        # The accepted trade-off boundary: a live release sitting past a full run of leading
+        # 404s (18.0..18.4 all genuine 404s, 18.5 live) is NOT discovered — the cap fires at
+        # 18.4 and 18.5 is never probed, so the line falls back to the umbrella page. This
+        # can only bite if five consecutive point-release pages are genuinely *deleted*
+        # (EoS pages return 'eos', which resets the counter), which upstream doesn't do. This
+        # test locks the cap value so a future change to it is a deliberate, visible edit.
+        pages = {"18.5": _titled_page("Databricks Runtime 18.5"),
+                 "18": _titled_page("Databricks Runtime 18 LTS")}
+        calls = []
+
+        def counting(url):
+            calls.append(_slug_of(url))
+            return pages.get(_slug_of(url))
+
+        with mock.patch.object(sync, "fetch_opt", counting):
+            self.assertEqual(sync.dbr_point_releases("18"), ([], "18"))
+        self.assertNotIn("18.5", calls)
+
 
 class SyncDbrFolderKeyTest(unittest.TestCase):
     def test_umbrella_line_publishes_point_releases_and_the_bare_major_umbrella(self):
