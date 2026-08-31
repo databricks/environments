@@ -53,6 +53,17 @@ WORDS = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
 # Index entries that aren't a runtime version page.
 DBR_NON_VERSION = {"maintenance-updates", "databricks-runtime-ver", "eos"}
 
+# End-of-support runtime lines to publish anyway, as page slugs. EoS lines are dropped
+# from the release-notes index (so discover_dbr never sees them) and skipped by
+# dbr_point_releases' EoS check, and the 'eos' page links none — so they can't be
+# discovered, only listed explicitly. Live clusters still request a few of them, and VPEX
+# telemetry then records E_ENV_UNSUPPORTED (an owned target with no environment published),
+# so we make a deliberate, narrow exception to the EoS-not-published policy for exactly the
+# lines with real traffic. Add a slug ONLY when telemetry shows its exact env_key failing:
+#   12.2 -> dbr/12.2.x-scala2.12   (8 events / 2 workspaces)
+#   16.1 -> dbr/16.1.x-scala2.12   (1 event  / 1 workspace)
+DBR_EOS_PUBLISH = ["12.2", "16.1"]
+
 
 def fetch(url):
     req = urllib.request.Request(url, headers={"User-Agent": "databricks-environments-sync"})
@@ -440,40 +451,62 @@ def _write_env(key, pkgs, python_version, dbconnect):
     print(f"  + dbr/{key} (python {python_version}, {len(pkgs)} packages)")
 
 
+def _sync_dbr_page(slug, point_release, umbrella_major):
+    """Fetch one standard runtime page and write its folder(s).
+
+    A live point release publishes its own '<key_ver>.x' folder (pre-18: the whole line;
+    EoS allowlist lines: their own line). The newest live release of a DBR 18+ line ALSO
+    publishes the bare-major '<major>.x' umbrella that a cluster's spark_version resolves
+    to — in ADDITION to its own folder, so the umbrella page (18.2) yields both '18.2.x'
+    and '18.x' (``umbrella_major`` set). A point-release folder pins databricks-connect to
+    its exact minor (18.2 -> ~=18.2.0); the bare-major umbrella instead pins the whole major
+    line (18 -> ~=18.0), so a cluster addressing the line by its bare major resolves the
+    newest databricks-connect in the major."""
+    try:
+        html = fetch(DBR_PAGE.format(slug=slug))
+    except Exception as e:
+        print(f"  ! dbr [{slug}]: fetch failed ({e}); skipping")
+        return
+    meta = dbr_meta(html)
+    pkgs, _ = parse_dbr_page(html)
+    if not meta or not pkgs:
+        print(f"  ! dbr [{slug}]: no meta / Python table; skipping")
+        return
+    key_ver, dbconnect_ver, scalas, python_version = meta
+    folder_vers = ([key_ver] if point_release else []) + ([umbrella_major] if umbrella_major else [])
+    for folder_ver in folder_vers:
+        # The bare-major umbrella tracks the whole major line (18 -> ~=18.0), like a
+        # serverless major; a point release (and every EoS allowlist line) keeps its exact
+        # minor (18.2 -> ~=18.2.0). See the docstring.
+        dbconnect = umbrella_major if folder_ver == umbrella_major else dbconnect_ver
+        for scala in scalas:
+            _write_env(f"{folder_ver}.x-scala{scala}", pkgs, python_version, dbconnect)
+
+
 def sync_dbr():
     for index_slug in discover_dbr():
         major = _umbrella_major(index_slug)
         pointrelease_slugs, umbrella_slug = dbr_point_releases(index_slug, ml=False)
         # The umbrella slug is usually also one of the point releases — fetch each page once.
         for slug in dict.fromkeys(pointrelease_slugs + ([umbrella_slug] if umbrella_slug else [])):
-            try:
-                html = fetch(DBR_PAGE.format(slug=slug))
-            except Exception as e:
-                print(f"  ! dbr [{slug}]: fetch failed ({e}); skipping")
-                continue
-            meta = dbr_meta(html)
-            pkgs, _ = parse_dbr_page(html)
-            if not meta or not pkgs:
-                print(f"  ! dbr [{slug}]: no meta / Python table; skipping")
-                continue
-            key_ver, dbconnect_ver, scalas, python_version = meta
-            # A live point release publishes its own '<minor>.x' folder (pre-18: the whole
-            # line). The newest live one ALSO publishes the bare-major '<major>.x' umbrella
-            # that a DBR 18+ cluster's spark_version resolves to — in ADDITION to its own
-            # folder, so the umbrella page (18.2) yields both '18.2.x' and '18.x'. Both use
-            # this page's dbconnect_ver (the latest point release's databricks-connect minor).
-            folder_vers = [key_ver] if slug in pointrelease_slugs else []
-            if major and slug == umbrella_slug:
-                folder_vers.append(major)
-            for folder_ver in folder_vers:
-                # A point-release folder pins its exact minor (18.2 -> ~=18.2.0). The bare-
-                # major umbrella tracks the whole major line, like a serverless major, so it
-                # pins ~=MAJOR.0 (18 -> ~=18.0): a cluster addressing the line by its bare
-                # major resolves the latest databricks-connect in the major, and a new point
-                # release doesn't need a regen to be covered.
-                dbconnect = major if folder_ver == major else dbconnect_ver
-                for scala in scalas:
-                    _write_env(f"{folder_ver}.x-scala{scala}", pkgs, python_version, dbconnect)
+            _sync_dbr_page(
+                slug,
+                point_release=slug in pointrelease_slugs,
+                umbrella_major=major if slug == umbrella_slug else None,
+            )
+
+
+def sync_dbr_eos():
+    """Publish the end-of-support lines in DBR_EOS_PUBLISH (see its comment for why they
+    exist and the telemetry rule for adding one).
+
+    These are dropped from the index and skipped by dbr_point_releases' EoS check, so they
+    are fetched directly here rather than discovered. Each is a self-contained runtime page
+    with the real minor in its title (pre-18-style), so it publishes only its own
+    '<key_ver>.x' folder(s) and no bare-major umbrella. They can't collide with the
+    index-driven sync_dbr (that path never yields an EoS slug)."""
+    for slug in DBR_EOS_PUBLISH:
+        _sync_dbr_page(slug, point_release=True, umbrella_major=None)
 
 
 def ml_variant_pkgs(ml_html, variant):
@@ -611,6 +644,8 @@ def main():
     sync_serverless()
     print("Syncing DBR runtimes from docs.databricks.com ...")
     sync_dbr()
+    print("Publishing end-of-support DBR runtimes still requested by clusters ...")
+    sync_dbr_eos()
     print("Syncing DBR ML runtimes (CPU + GPU) from docs.databricks.com ...")
     sync_dbr_ml()
     changed = reconcile()

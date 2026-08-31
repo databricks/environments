@@ -65,8 +65,8 @@ DROP_PREFIX = (
 # Environment-scoped drops: removed for the named environments only (DROP is global).
 # pandas 1.5.3 has no cp312 wheel — pandas ships CPython 3.12 wheels only from 2.1.1 —
 # so `uv sync` on a Python 3.12 runtime can't install it and falls back to a failing
-# source build. DBR 16.4 and serverless-v3 are the only 3.12 runtimes still pinned to
-# pandas 1.5.x: 13.3/14.3/15.4 predate 3.12, and 17.3+ / serverless-v4+ already ship
+# source build. DBR 16.1, 16.4 and serverless-v3 are the only 3.12 runtimes still pinned
+# to pandas 1.5.x: 13.3/14.3/15.4 predate 3.12, and 17.3+ / serverless-v4+ already ship
 # pandas 2.x (which has cp312 wheels). No in-range (~=1.5) version has a cp312 wheel,
 # so the pin can't be salvaged by widening — it is dropped for just these envs, and
 # pandas resolves to an installable version locally. See issue #18.
@@ -75,6 +75,9 @@ DROP_PREFIX = (
 # and self-expiring: if one of these runtimes is ever re-pinned to a cp312-wheel 2.x,
 # the version no longer matches and the pin is kept rather than silently discarded.
 DROP_BY_ENV = {
+    # DBR 16.1 is an EoS line published from sync.DBR_EOS_PUBLISH; it too is Python 3.12
+    # on pandas 1.5.3, so it carries the same drop.
+    "16.1.x-scala2.12": {"pandas": "1.5."},
     "16.4.x-scala2.12": {"pandas": "1.5."},
     "16.4.x-cpu-ml-scala2.12": {"pandas": "1.5."},
     "16.4.x-gpu-ml-scala2.12": {"pandas": "1.5."},
