@@ -300,7 +300,7 @@ def _umbrella_major(index_slug):
     return core if re.fullmatch(r"\d+", core) else None
 
 
-def dbr_point_releases(index_slug, ml=False, max_minor=50):
+def dbr_point_releases(index_slug, ml=False, max_minor=50, max_leading_misses=5):
     """Return ``(pointrelease_slugs, umbrella_slug)`` for a runtime line: the page slugs to
     generate individual '<minor>.x' folders from, and the page the bare-major '<major>.x'
     umbrella folder is generated from (or None when there is none, or it isn't safe this run).
@@ -316,8 +316,10 @@ def dbr_point_releases(index_slug, ml=False, max_minor=50):
 
     We probe '<major>.<minor>[ml]' from minor 0, stopping after two consecutive 404s once a
     page has been seen (leading 404s — e.g. a removed old page — don't end the list before a
-    later release is found); ``max_minor`` is only a runaway backstop set well beyond any
-    real line's point-release count, not the normal terminator. An EoS point release exists
+    later release is found). Before any page is seen, a longer run of ``max_leading_misses``
+    404s ends the probe instead, so a bare major with no point-release pages at all (e.g. DBR
+    19 today) doesn't scan the full range; ``max_minor`` is only a runaway backstop set well
+    beyond any real line's point-release count, not the normal terminator. An EoS point release exists
     (retired, not end-of-list), so it is skipped without ending the probe and is not
     published. The umbrella comes from the newest live point release, EXCEPT when a probe
     newer than that was left indeterminate by a transient error — then umbrella_slug is None
@@ -330,33 +332,34 @@ def dbr_point_releases(index_slug, ml=False, max_minor=50):
     suffix = "ml" if ml else ""
 
     def live_page(slug):
-        """Probe one page, returning one of:
-          'live'   (with html) — a live, non-EoS runtime page.
+        """Classify one probe, returning one of:
+          'live'   — a live, non-EoS runtime page.
           'eos'    — the page exists but the runtime is end-of-support: skip it, but it is
                      NOT end-of-list, so keep probing higher minors.
-          'absent' — a genuine 404: counts toward the two-consecutive end-of-list break.
+          'absent' — a genuine 404: counts toward the end-of-list break.
           'error'  — a transient fetch error (timeout, 5xx): logged and never mistaken for
                      a 404, mirroring discover_serverless — a flaky run must not abort the
-                     sync or be read as end-of-list."""
+                     sync or be read as end-of-list.
+        The page body isn't returned — sync_dbr / sync_dbr_ml refetch the pages they
+        generate from, so a probe only needs the classification."""
         try:
             html = fetch_opt(DBR_PAGE.format(slug=slug))
         except Exception as e:
             print(f"  ! dbr [{slug}]: transient fetch error ({e}); skipping (not end-of-list)")
-            return "error", None
+            return "error"
         if html is None:
-            return "absent", None
+            return "absent"
         if is_eos(html):
-            return "eos", None
-        return "live", html
+            return "eos"
+        return "live"
 
     if not major:
         # Pre-18 scheme: the index slug is the runtime page; no umbrella form.
-        kind, _ = live_page(index_slug)
-        return ([index_slug], None) if kind == "live" else ([], None)
+        return ([index_slug], None) if live_page(index_slug) == "live" else ([], None)
 
     live, transient_minors, saw_page, misses = [], [], False, 0
     for minor in range(0, max_minor + 1):
-        kind, _ = live_page(f"{major}.{minor}{suffix}")
+        kind = live_page(f"{major}.{minor}{suffix}")
         if kind == "error":
             # Record the minor, but don't advance the end-of-list counter (a flaky probe
             # is not a confirmed 404).
@@ -369,11 +372,22 @@ def dbr_point_releases(index_slug, ml=False, max_minor=50):
             continue
         if kind == "absent":
             misses += 1
-            # Only trailing 404s end the list. Don't honor the break until at least one page
-            # (live or EoS) has been seen, so leading 404s — e.g. an old point-release page
-            # that was removed — can't stop the probe before a later live release. Mirrors
-            # the "require at least one found" guard in discover_serverless.
-            if saw_page and misses >= 2:
+            # Two kinds of 404 run end the list. Once a page (live or EoS) has been seen, two
+            # consecutive 404s are the trailing end-of-list — mirrors the "require at least
+            # one found" guard in discover_serverless, so a removed early page can't stop the
+            # probe before a later live release. Before any page is seen, a longer run of
+            # leading 404s (max_leading_misses) is the terminator instead: a bare major with
+            # no point-release pages at all (e.g. DBR 19 today) would otherwise probe the full
+            # 0..max_minor range every run. Only genuine 404s count here — an EoS page is a
+            # hit (kind 'eos') that resets misses below. A line's point releases are numbered
+            # contiguously from .0, so five consecutive leading 404s mean none were published
+            # (the empty case), not a gap before a later release. Five sits comfortably above
+            # the trailing slack of 2 while bounding that empty case; it could only skip a real
+            # release if five early minors that once existed were later removed while a higher
+            # one stayed live — but upstream retires a page by marking it '(EoS)' (a hit), not
+            # by deleting it, so that doesn't arise.
+            cap = 2 if saw_page else max_leading_misses
+            if misses >= cap:
                 break
             continue
         saw_page = True
@@ -396,9 +410,13 @@ def dbr_point_releases(index_slug, ml=False, max_minor=50):
         return pointrelease_slugs, f"{major}.{latest_minor}{suffix}"
 
     if transient_minors:
-        # Nothing was confirmed live, but a probe was indeterminate — we can't be sure the
-        # line has no point release, so don't fall back to the umbrella page (which could
-        # generate the folder from the wrong metadata). Skip; a clean run resolves it.
+        # Nothing was confirmed live, but a probe was indeterminate. A transient could be
+        # masking a real point release whose page is the correct umbrella source; falling
+        # back to the umbrella index page instead could generate the folder from different
+        # (wrong) metadata. So skip conservatively — the existing folder is left untouched
+        # and a clean run resolves it. Trade-off: on a line that genuinely has no point
+        # release (the umbrella-only case), a single flaky probe still no-ops the line for a
+        # whole cycle; the leading-miss cap keeps that window small (a handful of probes).
         print(f"  ! dbr [{major}.x]: no live point release confirmed and a probe was "
               f"indeterminate (transient error); skipping this run")
         return [], None
@@ -409,8 +427,7 @@ def dbr_point_releases(index_slug, ml=False, max_minor=50):
         # are left as-is; pruning retired lines is out of scope (sync only writes).
         return [], None
     # No point-release page exists at all (e.g. DBR 19 today) — fall back to the umbrella page.
-    kind, _ = live_page(index_slug)
-    return ([], index_slug) if kind == "live" else ([], None)
+    return ([], index_slug) if live_page(index_slug) == "live" else ([], None)
 
 
 def _write_env(key, pkgs, python_version, dbconnect):
@@ -449,8 +466,14 @@ def sync_dbr():
             if major and slug == umbrella_slug:
                 folder_vers.append(major)
             for folder_ver in folder_vers:
+                # A point-release folder pins its exact minor (18.2 -> ~=18.2.0). The bare-
+                # major umbrella tracks the whole major line, like a serverless major, so it
+                # pins ~=MAJOR.0 (18 -> ~=18.0): a cluster addressing the line by its bare
+                # major resolves the latest databricks-connect in the major, and a new point
+                # release doesn't need a regen to be covered.
+                dbconnect = major if folder_ver == major else dbconnect_ver
                 for scala in scalas:
-                    _write_env(f"{folder_ver}.x-scala{scala}", pkgs, python_version, dbconnect_ver)
+                    _write_env(f"{folder_ver}.x-scala{scala}", pkgs, python_version, dbconnect)
 
 
 def ml_variant_pkgs(ml_html, variant):
@@ -499,8 +522,11 @@ def _sync_dbr_ml_page(slug, point_release, umbrella_major):
             print(f"  ! dbr-ml [{slug}] {variant}: no packages found; skipping")
             continue
         for folder_ver in folder_vers:
+            # Bare-major umbrella tracks the whole major line (18 -> ~=18.0); point-release
+            # folders pin their exact minor. See sync_dbr for the rationale.
+            dbconnect = umbrella_major if folder_ver == umbrella_major else dbconnect_ver
             for scala in scalas:
-                _write_env(f"{folder_ver}.x-{variant}-ml-scala{scala}", pkgs, python_version, dbconnect_ver)
+                _write_env(f"{folder_ver}.x-{variant}-ml-scala{scala}", pkgs, python_version, dbconnect)
 
 
 def git(*args):
