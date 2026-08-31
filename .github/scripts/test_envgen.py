@@ -43,12 +43,15 @@ class FilterTest(unittest.TestCase):
 
 class EnvScopedDropTest(unittest.TestCase):
     def test_pandas_dropped_on_py312_1_5_runtimes(self):
-        # DBR 16.4 + serverless-v3 are the only Python-3.12 runtimes still on
+        # DBR 16.1, 16.4 + serverless-v3 are the only Python-3.12 runtimes still on
         # pandas 1.5.x, which has no cp312 wheel — dropped for just these envs. DBR 16.4
         # ships both Scala images off one page (same Python packages), so the scala2.13
-        # variants carry the identical pandas problem and are dropped the same way.
+        # variants carry the identical pandas problem and are dropped the same way. DBR
+        # 16.1 is an EoS line published from the telemetry allowlist and is Python 3.12 on
+        # pandas 1.5.3 too, so it needs the same drop.
         pkgs = {"pandas": "1.5.3", "numpy": "2.1.3"}
         for env in (
+            "16.1.x-scala2.12",
             "16.4.x-scala2.12",
             "16.4.x-cpu-ml-scala2.12",
             "16.4.x-gpu-ml-scala2.12",

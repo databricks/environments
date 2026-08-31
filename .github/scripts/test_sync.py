@@ -420,5 +420,50 @@ class SyncDbrMlFolderKeyTest(unittest.TestCase):
         )
 
 
+class SyncDbrEosTest(unittest.TestCase):
+    def test_publishes_allowlisted_eos_line_despite_eos_marker(self):
+        # A line on the EoS allowlist is published from its own page even though its title
+        # carries '(EoS)' — the reason the allowlist exists (these lines are dropped from
+        # the index and skipped by dbr_point_releases' EoS check). Like a pre-18 line, it
+        # writes only its own '<key_ver>.x' folder and no bare-major umbrella.
+        pages = {"16.1": _runtime_page("Databricks Runtime 16.1 (EoS)", scala="2.12")}
+        writes = []
+        with mock.patch.object(sync, "DBR_EOS_PUBLISH", ["16.1"]), \
+                mock.patch.object(sync, "fetch", _fake_fetch(pages)), \
+                mock.patch.object(sync, "_write_env",
+                                  lambda key, pkgs, pv, dbconnect: writes.append((key, dbconnect))):
+            sync.sync_dbr_eos()
+        self.assertEqual(writes, [("16.1.x-scala2.12", "16.1")])
+
+    def test_rejects_a_bare_major_slug_this_path_does_not_support(self):
+        # sync_dbr_eos publishes pre-18 point-release lines (the minor lives in the page
+        # title). A bare-major 18+ slug would emit a '<major>.x' umbrella folder that
+        # collides with the live umbrella sync_dbr builds for that line, so it is rejected
+        # here rather than mispublished. A specific EoS point-release slug (even 18.5) is
+        # still fine — only the bare-major umbrella form is blocked.
+        pages = {"18": _runtime_page("Databricks Runtime 18 LTS (EoS)", scala="2.13")}
+        writes = []
+        with mock.patch.object(sync, "DBR_EOS_PUBLISH", ["18"]), \
+                mock.patch.object(sync, "fetch", _fake_fetch(pages)), \
+                mock.patch.object(sync, "_write_env",
+                                  lambda key, pkgs, pv, dbconnect: writes.append(key)):
+            sync.sync_dbr_eos()
+        self.assertEqual(writes, [])
+
+    def test_skips_an_allowlisted_slug_whose_page_is_gone(self):
+        # An EoS page can eventually be removed from the docs; a fetch failure on one
+        # allowlisted slug is logged and skipped without aborting the rest of the run.
+        def boom(url):
+            raise Exception("HTTP 404")
+
+        writes = []
+        with mock.patch.object(sync, "DBR_EOS_PUBLISH", ["12.2"]), \
+                mock.patch.object(sync, "fetch", boom), \
+                mock.patch.object(sync, "_write_env",
+                                  lambda *a, **k: writes.append(a)):
+            sync.sync_dbr_eos()
+        self.assertEqual(writes, [])
+
+
 if __name__ == "__main__":
     unittest.main()
