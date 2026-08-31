@@ -156,15 +156,17 @@ def _filtered(pkgs, env_name=None):
 def dbconnect_pin(pkgs):
     """Return the dev-group databricks-connect requirement, or None.
 
-    Serverless lists a concrete databricks-connect (e.g. '17.3.1'), but a serverless
-    environment version tracks a whole major line, not a single point release. So the
-    pin is by bare major — ``~=MAJOR.0`` (e.g. '17.3.1' -> ``databricks-connect~=17.0``,
-    resolving ``>=17.0, <18.0``) — to pick up the latest release within that major.
+    Serverless lists a concrete databricks-connect (e.g. '18.0.9'). The pin is by
+    MAJOR.MINOR — ``~=MAJOR.MINOR.0`` (e.g. '18.0.9' -> ``databricks-connect~=18.0.0``,
+    resolving ``>=18.0.0, <18.1``) — matching the minor series the constraint list was
+    generated from. A broader major-only pin (``~=18.0``) allows newer minor releases
+    whose bundled pyspark protobuf stubs may be incompatible with the pinned runtime
+    libraries (protobuf, grpcio) in the constraint list.
     """
     v = pkgs.get("databricks-connect")
     if not v:
         return None
-    return f"databricks-connect~={v.split('.')[0]}.0"
+    return f"databricks-connect~={'.'.join(v.split('.')[:2])}.0"
 
 
 def build_pyproject(pkgs, env_name, python_version, dbconnect=None):
