@@ -132,12 +132,12 @@ class BuildArtifactsTest(unittest.TestCase):
 class DbconnectPinTest(unittest.TestCase):
     def test_strips_local_version_segment(self):
         # databricks-connect is installed from the dev group as a plain PyPI release;
-        # the pin is normalized to ~=MAJOR.0, so a local segment in the release-notes
+        # the pin is normalized to ~=MAJOR.MINOR.0, so a local segment in the release-notes
         # version is discarded and never lands in an artifact. dbconnect_pin reads raw
         # pkgs (not _filtered), so this guards that the normalization does the stripping.
         self.assertEqual(
             dbconnect_pin({"databricks-connect": "17.3.1+db1"}),
-            "databricks-connect~=17.0",
+            "databricks-connect~=17.3.0",
         )
 
     def test_none_when_absent(self):
