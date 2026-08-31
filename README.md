@@ -119,7 +119,9 @@ is best-effort. Nobody hand-edits the `python/` artifacts.
   point-release folder pins `databricks-connect` to its exact minor (`18.2.x` → `~=18.2.0`),
   but the umbrella tracks the whole major line like a serverless major (`18.x` → `~=18.0`),
   so a cluster addressing the line by its bare major resolves the newest `databricks-connect`
-  in the major. EoS point releases are skipped. Pre-18 lines keep the old
+  in the major. EoS point releases are skipped, except a few pre-18 lines still requested by
+  live clusters, which are published from an explicit telemetry-curated allowlist
+  (`DBR_EOS_PUBLISH` in `sync.py`). Pre-18 lines keep the old
   scheme — one folder, keyed by the minor read from the page title. A release that
   ships two Scala images from
   one page (e.g. DBR 16.4 LTS — `Scala: 2.12.15 or 2.13.10`) yields one environment per

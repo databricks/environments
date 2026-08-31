@@ -62,6 +62,10 @@ DBR_NON_VERSION = {"maintenance-updates", "databricks-runtime-ver", "eos"}
 # lines with real traffic. Add a slug ONLY when telemetry shows its exact env_key failing:
 #   12.2 -> dbr/12.2.x-scala2.12   (8 events / 2 workspaces)
 #   16.1 -> dbr/16.1.x-scala2.12   (1 event  / 1 workspace)
+# Each slug must be a pre-18 point-release page (the minor lives in its title, e.g. '12.2');
+# a bare-major 18+ slug is rejected by sync_dbr_eos. If a listed page ships two Scala images
+# and is Python 3.12 on pandas 1.5.x, also add its scala2.13 env to envgen.DROP_BY_ENV (as
+# 16.4 does) — verify_resolve.py flags an uncovered folder that then can't uv sync.
 DBR_EOS_PUBLISH = ["12.2", "16.1"]
 
 
@@ -504,8 +508,17 @@ def sync_dbr_eos():
     are fetched directly here rather than discovered. Each is a self-contained runtime page
     with the real minor in its title (pre-18-style), so it publishes only its own
     '<key_ver>.x' folder(s) and no bare-major umbrella. They can't collide with the
-    index-driven sync_dbr (that path never yields an EoS slug)."""
+    index-driven sync_dbr (that path never yields an EoS slug).
+
+    A bare-major 18+ slug (e.g. '18') is rejected: it has no minor in its title, so this
+    point-release path would emit a '<major>.x' umbrella folder that collides with the live
+    umbrella sync_dbr builds for that line. A specific EoS point release (even '18.5') is
+    fine — only the bare-major umbrella form is unsupported here."""
     for slug in DBR_EOS_PUBLISH:
+        if _umbrella_major(slug):
+            print(f"  ! dbr-eos [{slug}]: bare-major (18+) slug unsupported by the EoS path "
+                  f"(would emit a colliding umbrella folder); skipping")
+            continue
         _sync_dbr_page(slug, point_release=True, umbrella_major=None)
 
 
