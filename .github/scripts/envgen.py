@@ -12,6 +12,9 @@ a developer machine:
                          because databricks-connect (installed from the dev group)
                          governs their versions and can require outside the runtime's
                          patch line. See ``req`` (CONNECT_GOVERNED) / issues #16,#19,#20.
+  * Security floors    - a package whose runtime version is below its minimum safe
+                         version is pinned to ``>=FLOOR,<NEXT_MAJOR`` instead. See
+                         SECURITY_FLOOR.
   * databricks-connect - pinned to ``~=MAJOR.MINOR.0`` and emitted into
                          ``[dependency-groups].dev`` of the pyproject (installed by
                          default under uv); omitted from constraints.txt so the pip
@@ -95,6 +98,23 @@ DROP_BY_ENV = {
 # metadata (and wheel availability) picks the version in-range. See req() / issue #16.
 CONNECT_GOVERNED = {"databricks-sdk", "grpcio", "grpcio-status"}
 
+# Minimum versions required for security, whatever the runtime lists. A runtime
+# version below the floor is pinned to ``>=FLOOR,<NEXT_MAJOR`` (the upper bound ~=
+# would give); at or above the floor the normal pin is kept.
+#
+# grpcio 1.84.1 requires Python >= 3.10. No Python 3.9 environment pins grpcio today.
+SECURITY_FLOOR = {"grpcio": "1.84.1"}
+
+# Floors that a SECURITY_FLOOR release itself requires, so runtimes listing an older
+# version stay resolvable. grpcio 1.84.1 requires typing-extensions~=4.12, and DBR
+# 13.3 to 16.4 and serverless-v1 to v3 list typing-extensions 4.3 to 4.11.
+FLOOR_DEPENDENCIES = {"typing-extensions": "4.12"}
+
+
+def _release(version):
+    """Leading numeric release of a version, as a tuple of ints ('1.84.1rc1' -> (1, 84, 1))."""
+    return tuple(int(p) for p in re.match(r"\d+(?:\.\d+)*", version).group(0).split("."))
+
 
 def norm(name):
     # Strip the '*' footnote marker the release-notes tables append to some package
@@ -125,8 +145,15 @@ def req(name, version):
     wheel). Widening to ``MAJOR.MINOR`` (``~=0.67`` → ``>=0.67,<1``) keeps the runtime's
     version as the floor while letting databricks-connect's metadata and wheel
     availability pick the exact version in-range. See issues #16, #19, #20.
+
+    A package in ``SECURITY_FLOOR`` or ``FLOOR_DEPENDENCIES`` whose version is below
+    its floor is rendered as ``>=FLOOR,<NEXT_MAJOR`` (``grpcio 1.60.0`` ->
+    ``grpcio>=1.84.1,<2``, ``typing-extensions 4.4.0`` -> ``typing-extensions>=4.12,<5``).
     """
     version = version.split("+", 1)[0]
+    floor = SECURITY_FLOOR.get(name) or FLOOR_DEPENDENCIES.get(name)
+    if floor and _release(version) < _release(floor):
+        return f"{name}>={floor},<{_release(floor)[0] + 1}"
     if name in CONNECT_GOVERNED:
         version = ".".join(version.split(".")[:2])
     return f"{name}~={version}"

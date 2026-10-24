@@ -95,9 +95,42 @@ class ReqTest(unittest.TestCase):
         # grpcio / grpcio-status move with databricks-connect (installed from the dev
         # group), which can require a version outside the runtime's patch line — so
         # widen them to MAJOR.MINOR like databricks-sdk, keeping the runtime as floor.
-        self.assertEqual(req("grpcio", "1.48.2"), "grpcio~=1.48")
+        # (grpcio below its security floor is covered by SecurityFloorTest.)
+        self.assertEqual(req("grpcio", "1.85.0"), "grpcio~=1.85")
         self.assertEqual(req("grpcio-status", "1.48.1"), "grpcio-status~=1.48")
-        self.assertEqual(req("grpcio", "1.67.0"), "grpcio~=1.67")
+        self.assertEqual(req("grpcio-status", "1.67.0"), "grpcio-status~=1.67")
+
+
+class SecurityFloorTest(unittest.TestCase):
+    def test_grpcio_below_floor_raised(self):
+        # Every runtime listing grpcio below 1.84.1 gets the floor, with the <2 bound
+        # that ~= would give.
+        for v in ("1.48.2", "1.60.0", "1.67.0", "1.76.0", "1.84.0", "1.84.0+db1"):
+            self.assertEqual(req("grpcio", v), "grpcio>=1.84.1,<2", v)
+
+    def test_grpcio_at_or_above_floor_unchanged(self):
+        self.assertEqual(req("grpcio", "1.84.1"), "grpcio~=1.84")
+        self.assertEqual(req("grpcio", "1.85.0"), "grpcio~=1.85")
+
+    def test_grpcio_status_not_floored(self):
+        # grpcio-status has no floor. Raising it would pull a newer protobuf than the
+        # runtime pins, and grpcio-status 1.x already accepts a newer grpcio.
+        self.assertEqual(req("grpcio-status", "1.60.0"), "grpcio-status~=1.60")
+
+    def test_typing_extensions_raised_for_grpcio(self):
+        # grpcio 1.84.1 requires typing-extensions~=4.12, so older runtime pins would
+        # make the floored grpcio unresolvable.
+        self.assertEqual(req("typing-extensions", "4.4.0"), "typing-extensions>=4.12,<5")
+        self.assertEqual(req("typing-extensions", "4.11.0"), "typing-extensions>=4.12,<5")
+        self.assertEqual(req("typing-extensions", "4.12.2"), "typing-extensions~=4.12.2")
+
+    def test_floor_reaches_both_artifacts(self):
+        pkgs = {"grpcio": "1.67.0", "grpcio-status": "1.67.0"}
+        for out in (build_pyproject(pkgs, "serverless-v4", "3.12.3"),
+                    build_constraints(pkgs, "serverless-v4")):
+            self.assertIn("grpcio>=1.84.1,<2", out)
+            self.assertIn("grpcio-status~=1.67", out)
+            self.assertNotIn("grpcio~=", out)
 
 
 class BuildArtifactsTest(unittest.TestCase):
